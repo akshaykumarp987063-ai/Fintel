@@ -45,9 +45,58 @@ def inject_global_styles() -> None:
         }
 
         .block-container {
-            padding-top: 1.5rem;
+            padding-top: 1rem;
             padding-bottom: 2rem;
             max-width: 1200px;
+        }
+
+        header[data-testid="stHeader"] {
+            background: transparent;
+        }
+
+        .fintel-section-gap-sm { margin-top: 0.5rem; }
+        .fintel-section-gap { margin-top: 0.85rem; }
+
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .fintel-metric-card {
+            background: #12161e;
+            border: 1px solid #252d3a;
+            border-radius: 14px;
+            padding: 1rem 1.15rem;
+            min-height: 92px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            margin-bottom: 0;
+        }
+
+        .fintel-metric-card .fintel-metric-label {
+            white-space: normal;
+            line-height: 1.3;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: #12161e;
+            border-color: #252d3a !important;
+            border-radius: 14px;
+            padding: 0.85rem 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        div[data-testid="stMetric"] {
+            background: #12161e;
+            border: 1px solid #252d3a;
+            border-radius: 12px;
+            padding: 0.75rem 0.85rem;
+        }
+
+        div[data-testid="stMetricLabel"] {
+            white-space: normal !important;
+            overflow-wrap: anywhere;
         }
 
         div[data-testid="stVerticalBlock"] > div:has(> div.fintel-card) {
@@ -58,8 +107,26 @@ def inject_global_styles() -> None:
             background: #12161e;
             border: 1px solid #252d3a;
             border-radius: 14px;
-            padding: 1.25rem 1.35rem;
-            margin-bottom: 0.75rem;
+            padding: 1.15rem 1.25rem;
+            margin-bottom: 0;
+        }
+
+        .fintel-consensus-card {
+            margin-top: 0.5rem;
+        }
+
+        .fintel-consensus-result {
+            margin: 0.75rem 0 0.35rem 0;
+            font-size: 0.95rem;
+            color: #e8eaed;
+        }
+
+        .fintel-consensus-conflict {
+            margin: 0.5rem 0 0 0;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #d29922;
+            letter-spacing: 0.04em;
         }
 
         .fintel-card-hero {
@@ -93,11 +160,12 @@ def inject_global_styles() -> None:
         }
 
         .fintel-brand {
-            font-size: 1.75rem;
+            font-size: 2rem;
             font-weight: 700;
-            letter-spacing: 0.22em;
+            letter-spacing: 0.2em;
             color: #f0f3f6;
             margin: 0;
+            line-height: 1.1;
         }
 
         .fintel-tagline {
@@ -143,12 +211,13 @@ def inject_global_styles() -> None:
         .signal-warn { background: rgba(210,153,34,0.14); color: #d29922; border: 1px solid rgba(210,153,34,0.3); }
 
         .fintel-metric-label {
-            font-size: 0.7rem;
+            font-size: 0.68rem;
             font-weight: 600;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             color: #6e7681;
             margin-bottom: 0.25rem;
+            white-space: nowrap;
         }
 
         .fintel-metric-value {
@@ -180,8 +249,9 @@ def inject_global_styles() -> None:
             background: #0f1319;
             border: 1px solid #232b36;
             border-radius: 12px;
-            padding: 1.1rem 1.2rem;
-            height: 100%;
+            padding: 1rem 1.1rem;
+            min-height: 118px;
+            flex: 1;
         }
 
         .fintel-agent-name {
@@ -249,8 +319,8 @@ def inject_global_styles() -> None:
             background: #0f1319;
             border: 1px solid #232b36;
             border-radius: 10px;
-            padding: 1rem 1.1rem;
-            margin-bottom: 0.6rem;
+            padding: 0.85rem 1rem;
+            margin-bottom: 0.5rem;
         }
 
         .fintel-confidence-ring {
@@ -312,7 +382,7 @@ def format_timestamp(ts: str | None, prefix: str = "Last updated") -> str:
         dt = datetime.fromisoformat(normalized)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        formatted = dt.astimezone(timezone.utc).strftime("%b %d, %Y · %H:%M UTC")
+        formatted = dt.astimezone(timezone.utc).strftime("%b %d, %Y • %H:%M UTC")
         return f"{prefix}: {formatted}"
     except (ValueError, TypeError):
         return f"{prefix}: {ts[:19]}"
@@ -399,9 +469,17 @@ def render_signal_badge(signal: str) -> str:
     return f'<span class="fintel-signal-badge {css}">{signal or "—"}</span>'
 
 
-# ---------------------------------------------------------------------------
-# Section renderers
-# ---------------------------------------------------------------------------
+def render_section_title(text: str, gap: bool = False) -> None:
+    css = "fintel-section-title fintel-section-gap" if gap else "fintel-section-title"
+    st.markdown(f'<p class="{css}">{html.escape(text)}</p>', unsafe_allow_html=True)
+
+
+def render_section_heading(text: str) -> None:
+    st.markdown(
+        f'<p class="fintel-section-heading">{html.escape(text)}</p>',
+        unsafe_allow_html=True,
+    )
+
 
 def render_header(market_data: dict[str, Any] | None) -> None:
     status = (market_data or {}).get("data_status", "—")
@@ -425,7 +503,7 @@ def render_header(market_data: dict[str, Any] | None) -> None:
             f"""
             <div style="text-align: right; padding-top: 0.25rem;">
                 {render_status_badge(status) if status != "—" else '<span class="fintel-badge fintel-badge-simulated">AWAITING DATA</span>'}
-                <p class="fintel-subline" style="margin-top: 0.65rem; text-align: right;">{ts_label}</p>
+                <p class="fintel-subline" style="margin-top: 0.65rem; text-align: right;">{html.escape(ts_label)}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -438,7 +516,7 @@ def render_control_bar(
 ) -> tuple[bool, bool, bool, bool]:
     st.markdown('<p class="fintel-section-title">Control Panel</p>', unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns([1.4, 1.2, 1, 1.2])
+    c1, c2, c3, c4 = st.columns([1.4, 1.2, 1, 1.2], vertical_alignment="bottom")
     with c1:
         investor_id = st.selectbox(
             "Investor",
@@ -449,10 +527,8 @@ def render_control_bar(
     with c2:
         symbol = st.selectbox("Stock", options=STOCKS, key="stock_select")
     with c3:
-        st.markdown("<div style='margin-top: 1.6rem;'></div>", unsafe_allow_html=True)
         analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
     with c4:
-        st.markdown("<div style='margin-top: 1.6rem;'></div>", unsafe_allow_html=True)
         refresh_clicked = st.button("Refresh Market Data", use_container_width=True)
 
     simulate_missing_filing = False
@@ -505,6 +581,9 @@ def render_market_overview(result: dict[str, Any]) -> None:
     if change is not None:
         change_class = "fintel-change-pos" if change > 0 else "fintel-change-neg" if change < 0 else "fintel-change-neu"
 
+    price_text = f"₹{price:,.2f}" if price is not None else "—"
+    change_text = f"{change:+.2f}%" if change is not None else "—"
+
     st.markdown('<p class="fintel-section-title">Market Overview</p>', unsafe_allow_html=True)
     st.markdown(
         f"""
@@ -512,13 +591,13 @@ def render_market_overview(result: dict[str, Any]) -> None:
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
                 <div>
                     <p class="fintel-section-title" style="margin-bottom: 0.2rem;">Selected Symbol</p>
-                    <p style="font-size: 1.6rem; font-weight: 700; margin: 0; color: #f0f3f6;">{symbol}</p>
-                    <p class="fintel-price">{'₹' + f'{price:,.2f}' if price is not None else '—'}</p>
-                    <p class="{change_class}">{f'{change:+.2f}%' if change is not None else '—'}</p>
+                    <p style="font-size: 1.6rem; font-weight: 700; margin: 0; color: #f0f3f6;">{html.escape(str(symbol))}</p>
+                    <p class="fintel-price">{html.escape(price_text)}</p>
+                    <p class="{change_class}">{html.escape(change_text)}</p>
                 </div>
                 <div style="text-align: right;">
                     {render_status_badge(data_status)}
-                    <p class="fintel-subline" style="margin-top: 0.5rem;">Provider: <strong>{provider}</strong></p>
+                    <p class="fintel-subline" style="margin-top: 0.5rem;">Provider: <strong>{html.escape(str(provider))}</strong></p>
                 </div>
             </div>
         </div>
@@ -535,15 +614,7 @@ def render_market_overview(result: dict[str, Any]) -> None:
     ]
     for col, (label, value) in zip([m1, m2, m3, m4], metrics):
         with col:
-            st.markdown(
-                f"""
-                <div class="fintel-card">
-                    <p class="fintel-metric-label">{label}</p>
-                    <p class="fintel-metric-value-sm">{value}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.metric(label=label, value=str(value))
 
 
 def render_signal_intelligence(result: dict[str, Any]) -> None:
@@ -552,51 +623,42 @@ def render_signal_intelligence(result: dict[str, Any]) -> None:
     md = result.get("market_data", {})
     vr = md.get("volume_ratio")
 
-    st.markdown('<p class="fintel-section-title">Signal Intelligence</p>', unsafe_allow_html=True)
+    st.markdown('<p class="fintel-section-title fintel-section-gap">Signal Intelligence</p>', unsafe_allow_html=True)
     st.markdown('<p class="fintel-section-heading">Market Signal Dimensions</p>', unsafe_allow_html=True)
 
     cards = [
-        ("Momentum", dims.get("momentum", "—"), agents.get("technical", {}).get("confidence"), "Price trend classification"),
-        ("Volume", dims.get("volume", "—"), None, f"{vr:.1f}x avg" if vr is not None else "Ratio unavailable"),
-        ("Sentiment", dims.get("sentiment", "—"), agents.get("sentiment", {}).get("confidence"), "News & sentiment signal"),
+        ("Momentum", dims.get("momentum", "—"), agents.get("technical", {}).get("confidence"), "Price trend"),
+        ("Volume", dims.get("volume", "—"), None, f"{vr:.1f}x avg" if vr is not None else "Unavailable"),
+        ("Sentiment", dims.get("sentiment", "—"), agents.get("sentiment", {}).get("confidence"), "News signal"),
     ]
 
     c1, c2, c3 = st.columns(3)
     for col, (label, classification, confidence, note) in zip([c1, c2, c3], cards):
         conf_text = f"{confidence:.0%} confidence" if confidence is not None else note
         with col:
-            st.markdown(
-                f"""
-                <div class="fintel-card" style="text-align: center;">
-                    <p class="fintel-metric-label">{label}</p>
-                    <div style="margin: 0.6rem 0;">{render_signal_badge(str(classification))}</div>
-                    <p class="fintel-subline">{conf_text}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.caption(label)
+                st.write(f"**{classification}**")
+                st.caption(conf_text)
 
 
 def render_agent_card(agent_key: str, agent: dict[str, Any]) -> None:
-    title = f"{agent_key.title()} Agent"
+    title = f"{agent_key.upper()} Agent"
     signal = agent.get("signal", "—")
     confidence = agent.get("confidence", 0)
     status = agent.get("status", "—")
-    reasoning = agent.get("reasoning", "")
 
-    st.markdown(
-        f"""
-        <div class="fintel-agent-card">
-            <p class="fintel-agent-name">{title}</p>
-            <div style="margin-bottom: 0.5rem;">{render_signal_badge(signal)}</div>
-            <p class="fintel-metric-value-sm" style="margin: 0.25rem 0;">{confidence:.0%} confidence</p>
-            <p class="fintel-subline">Status: <strong>{status}</strong></p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.caption(title)
+        st.write(f"**{signal}**")
+        st.write(f"{confidence:.0%} confidence")
+        st.caption(f"Status: {status}")
+
+
+def render_agent_reasoning(agent_key: str, agent: dict[str, Any]) -> None:
+    reasoning = agent.get("reasoning", "")
     with st.expander("View reasoning", expanded=False):
-        st.write(reasoning)
+        st.caption(reasoning)
 
 
 def render_agent_council(result: dict[str, Any], simulate_conflict: bool) -> None:
@@ -615,73 +677,61 @@ def render_agent_council(result: dict[str, Any], simulate_conflict: bool) -> Non
     )
 
     a1, a2, a3 = st.columns(3)
-    for col, key in zip([a1, a2, a3], ["technical", "fundamental", "sentiment"]):
+    agent_keys = ["technical", "fundamental", "sentiment"]
+    for col, key in zip([a1, a2, a3], agent_keys):
         with col:
             render_agent_card(key, agents.get(key, {}))
 
-    st.markdown('<div style="margin-top: 0.75rem;"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="fintel-card">', unsafe_allow_html=True)
-    st.markdown('<p class="fintel-metric-label">Agent Consensus</p>', unsafe_allow_html=True)
+    r1, r2, r3 = st.columns(3)
+    for col, key in zip([r1, r2, r3], agent_keys):
+        with col:
+            render_agent_reasoning(key, agents.get(key, {}))
 
-    for label, key in [("Technical", "technical"), ("Fundamental", "fundamental"), ("Sentiment", "sentiment")]:
-        signal = agents.get(key, {}).get("signal", "—")
-        st.write(f"**{label}** — {signal}")
-
-    st.write(f"**Consensus:** {consensus}")
-    if explanation:
-        st.caption(explanation)
-    if has_conflict or simulate_conflict:
-        st.warning("Signal conflict detected — confidence reduced.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("AGENT CONSENSUS")
+        for label, key in [
+            ("Technical", "technical"),
+            ("Fundamental", "fundamental"),
+            ("Sentiment", "sentiment"),
+        ]:
+            signal = agents.get(key, {}).get("signal", "—")
+            st.write(f"**{label}** — {signal}")
+        st.write(f"**Consensus:** {consensus}")
+        if explanation:
+            st.caption(explanation)
+        if has_conflict or simulate_conflict:
+            st.warning("CONFLICT DETECTED — Signal conflict detected — confidence reduced.")
 
 
 def render_sentiment_section(result: dict[str, Any]) -> None:
     sentiment = result.get("agents", {}).get("sentiment", {})
     src_type = sentiment.get("sentiment_source", "DEMO_FALLBACK")
 
-    st.markdown('<p class="fintel-section-title">Sentiment Intelligence</p>', unsafe_allow_html=True)
+    st.markdown('<p class="fintel-section-title fintel-section-gap">Sentiment Intelligence</p>', unsafe_allow_html=True)
     st.markdown('<p class="fintel-section-heading">Sentiment Intelligence</p>', unsafe_allow_html=True)
 
     if src_type == "LIVE_NEWS":
         headline_count = sentiment.get("news_headlines_retrieved", 0)
         st.caption(
-            f"Source: LIVE NEWS · {headline_count} relevant headline(s) · "
+            f"Source: LIVE NEWS · {headline_count} company-relevant headline(s) · "
             f"Aggregate score: {sentiment.get('score', 0):+.2f}"
         )
         for headline in sentiment.get("news_headlines", [])[:5]:
-            publisher = html.escape(headline.get("source", "Unknown"))
-            title = html.escape(headline.get("title", ""))
+            publisher = headline.get("source", "Unknown")
+            title = headline.get("title", "")
             published = headline.get("published_at", "")
             url = headline.get("url", "")
             contribution = headline.get("sentiment_contribution")
-            pub_display = html.escape(format_timestamp(published, "Published")) if published else ""
 
-            contribution_line = ""
-            if contribution is not None:
-                contribution_line = (
-                    f'<p class="fintel-subline">Sentiment contribution: {contribution:+.2f}</p>'
-                )
-
-            link_line = ""
-            if url:
-                safe_url = html.escape(url)
-                link_line = (
-                    f'<p class="fintel-subline" style="margin-top: 0.35rem;">'
-                    f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Source link</a></p>'
-                )
-
-            st.markdown(
-                f"""
-                <div class="fintel-news-card">
-                    <p class="fintel-metric-label">{publisher}</p>
-                    <p style="font-size: 0.95rem; font-weight: 600; color: #e8eaed; margin: 0.35rem 0;">{title}</p>
-                    <p class="fintel-subline">{pub_display}</p>
-                    {contribution_line}
-                    {link_line}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.caption(publisher)
+                st.write(title)
+                if published:
+                    st.caption(format_timestamp(published, "Published"))
+                if contribution is not None:
+                    st.caption(f"Sentiment contribution: {contribution:+.2f}")
+                if url:
+                    st.markdown(f"[Source link]({url})")
     else:
         st.caption("Source: DETERMINISTIC DEMO FALLBACK")
         st.info("Live news unavailable — deterministic fallback active.")
@@ -694,43 +744,27 @@ def render_portfolio_impact(result: dict[str, Any], investor_id: str) -> None:
     portfolio = profile.get("portfolio", {})
     symbol = pi.get("symbol") or result.get("market_data", {}).get("symbol", "")
     impact_level = pi.get("classification", "—")
-    impact_color = IMPACT_COLORS.get(impact_level, "#8b949e")
 
-    st.markdown('<p class="fintel-section-title">Portfolio Impact</p>', unsafe_allow_html=True)
+    st.markdown('<p class="fintel-section-title fintel-section-gap">Portfolio Impact</p>', unsafe_allow_html=True)
     st.markdown('<p class="fintel-section-heading">Your Portfolio Impact</p>', unsafe_allow_html=True)
     st.caption("Market events are weighted against your portfolio exposure.")
 
     c1, c2 = st.columns([1.2, 1])
     with c1:
-        st.markdown(
-            f"""
-            <div class="fintel-card">
-                <p class="fintel-metric-label">Investor</p>
-                <p class="fintel-metric-value-sm">{pi.get('user', '—')}</p>
-                <p class="fintel-subline">{pi.get('risk_tolerance', '—')} risk profile</p>
-                <div style="margin-top: 1rem;">
-                    <p class="fintel-metric-label">{symbol} Exposure</p>
-                    <p class="fintel-metric-value">{pi.get('exposure', 0):.0%}</p>
-                </div>
-                <div style="margin-top: 1rem;">
-                    <p class="fintel-metric-label">Estimated Direct Impact</p>
-                    <p class="fintel-metric-value">{pi.get('direct_impact_pct', 0):+.2f}%</p>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.caption("Investor")
+            st.write(f"**{pi.get('user', '—')}**")
+            st.caption(f"{pi.get('risk_tolerance', '—')} risk profile")
+            st.caption(f"{symbol} Exposure")
+            st.markdown(f"## {pi.get('exposure', 0):.0%}")
+            st.caption("Estimated Direct Impact")
+            st.markdown(f"## {pi.get('direct_impact_pct', 0):+.2f}%")
+            st.caption("Illustrative exposure-weighted estimate")
     with c2:
-        st.markdown(
-            f"""
-            <div class="fintel-card" style="text-align: center; border-color: {impact_color}55;">
-                <p class="fintel-metric-label">Impact Level</p>
-                <p style="font-size: 2.2rem; font-weight: 800; color: {impact_color}; margin: 0.5rem 0;">{impact_level}</p>
-                <p class="fintel-subline">Exposure-weighted signal impact</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.caption("Impact Level")
+            st.markdown(f"## {impact_level}")
+            st.caption("Exposure-weighted signal impact")
 
     st.markdown('<p class="fintel-section-sub" style="margin-top: 1rem;">Portfolio Composition</p>', unsafe_allow_html=True)
     for holding, weight in sorted(portfolio.items(), key=lambda x: -x[1]):
@@ -743,7 +777,7 @@ def render_portfolio_impact(result: dict[str, Any], investor_id: str) -> None:
             f"""
             <div style="margin-bottom: 0.65rem;">
                 <div style="display: flex; justify-content: space-between; font-size: 0.88rem;">
-                    <span style="color: #c9d1d9;">{label}</span>
+                    <span style="color: #c9d1d9;">{html.escape(label)}</span>
                     <span style="color: #8b949e;">{pct}%</span>
                 </div>
                 <div class="fintel-allocation-bar">
@@ -764,52 +798,52 @@ def render_confidence(result: dict[str, Any], simulate_conflict: bool) -> None:
         consensus = "Conflicted"
         explanation = "Signal conflict detected — confidence reduced."
 
-    c1, c2 = st.columns([1, 1.5])
+    st.markdown('<p class="fintel-section-title fintel-section-gap">Confidence</p>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
     with c1:
-        st.markdown(
-            f"""
-            <div class="fintel-card" style="text-align: center;">
-                <p class="fintel-metric-label">Overall Confidence</p>
-                <p class="fintel-confidence-ring">{confidence:.0%}</p>
-                <p class="fintel-subline">Illustrative signal confidence</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.caption("OVERALL CONFIDENCE")
+            st.markdown(f"## {confidence:.0%}")
+            st.caption("Illustrative signal confidence")
     with c2:
-        st.markdown('<div class="fintel-card">', unsafe_allow_html=True)
-        st.markdown('<p class="fintel-metric-label">Agent Agreement</p>', unsafe_allow_html=True)
-        st.markdown(
-            f'<p class="fintel-metric-value-sm">{html.escape(consensus)}</p>',
-            unsafe_allow_html=True,
-        )
-        if explanation:
-            st.caption(explanation)
-        st.caption(f"Overall signal: {result.get('overall_signal', '—')}")
-        if has_conflict:
-            st.warning("Confidence reduced due to agent disagreement.")
-        summary = result.get("summary", "")
-        if summary:
-            st.caption(summary)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.caption("AGENT AGREEMENT")
+            st.write(f"**{consensus}**")
+            st.caption(f"Overall signal: {result.get('overall_signal', '—')}")
+            if explanation:
+                st.caption(explanation)
+            if has_conflict:
+                st.warning("Confidence reduced due to agent disagreement.")
+            summary = result.get("summary", "")
+            if summary:
+                st.caption(summary)
 
 
 def render_reasoning_chain(result: dict[str, Any]) -> None:
     chain = result.get("reasoning_chain", [])
 
-    with st.expander("Why did Fintel reach this conclusion?", expanded=True):
-        st.caption("Step-by-step reasoning from market data to portfolio impact.")
-        for step in chain:
+    st.markdown(
+        '<p class="fintel-section-title fintel-section-gap">Explainability</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="fintel-section-heading">Why did Fintel reach this conclusion?</p>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Step-by-step reasoning from market data to portfolio impact.")
+
+    with st.container(border=True):
+        for index, step in enumerate(chain):
             label, body = parse_reasoning_step(step)
-            st.markdown(
-                f"""
-                <div class="fintel-timeline-step">
-                    <p class="fintel-timeline-label">{html.escape(label)}</p>
-                    <p class="fintel-timeline-body">{html.escape(body)}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            dot_col, text_col = st.columns([0.04, 0.96], gap="small")
+            with dot_col:
+                st.markdown("**●**")
+            with text_col:
+                st.markdown(f"**{index + 1}. {label}**")
+                st.write(body)
+            if index < len(chain) - 1:
+                st.divider()
 
 
 def render_evidence(result: dict[str, Any]) -> None:
@@ -855,31 +889,37 @@ def render_metrics(result: dict[str, Any]) -> None:
     st.markdown('<p class="fintel-section-title">Session</p>', unsafe_allow_html=True)
     st.markdown('<p class="fintel-section-heading">Session Metrics</p>', unsafe_allow_html=True)
 
-    items = [
+    row1 = [
         ("Latency", f"{metrics.get('latency_seconds', 0):.3f}s"),
         ("Signal Confidence", f"{metrics.get('signal_confidence', 0):.0%}"),
         ("Portfolio Concentration", f"{metrics.get('portfolio_concentration', 0):.0%}"),
         ("Agents Completed", str(metrics.get("agents_completed", 0))),
+    ]
+    row2 = [
         ("Sources Retrieved", str(metrics.get("sources_retrieved", 0))),
-        ("Market Data Source", metrics.get("market_data_source", "—")),
+        ("Market Data Source", str(metrics.get("market_data_source", "—"))),
         ("Data Freshness", format_timestamp(metrics.get("data_freshness"), "Quote").replace("Quote: ", "")),
-        ("Sentiment Source", metrics.get("sentiment_source", "DEMO_FALLBACK")),
+        ("Sentiment Source", str(metrics.get("sentiment_source", "DEMO_FALLBACK"))),
+    ]
+    row3 = [
         ("News Headlines", str(metrics.get("news_headlines_retrieved", 0))),
         ("Sentiment Score", f"{sentiment.get('score', 0):+.2f}"),
     ]
 
-    cols = st.columns(5)
-    for idx, (label, value) in enumerate(items):
-        with cols[idx % 5]:
-            st.markdown(
-                f"""
-                <div class="fintel-card" style="padding: 0.85rem;">
-                    <p class="fintel-metric-label">{label}</p>
-                    <p style="font-size: 0.95rem; font-weight: 600; color: #e8eaed; margin: 0;">{value}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    cols1 = st.columns(4)
+    for col, (label, value) in zip(cols1, row1):
+        with col:
+            st.metric(label=label, value=value)
+
+    cols2 = st.columns(4)
+    for col, (label, value) in zip(cols2, row2):
+        with col:
+            st.metric(label=label, value=value)
+
+    cols3 = st.columns(2)
+    for col, (label, value) in zip(cols3, row3):
+        with col:
+            st.metric(label=label, value=value)
 
 
 def render_footer() -> None:
@@ -897,7 +937,6 @@ def render_footer() -> None:
 def render_analysis_dashboard(result: dict[str, Any], investor_id: str, simulate_conflict: bool) -> None:
     render_degraded_alerts(result)
     render_market_overview(result)
-    st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
     render_signal_intelligence(result)
     render_agent_council(result, simulate_conflict)
     render_sentiment_section(result)
