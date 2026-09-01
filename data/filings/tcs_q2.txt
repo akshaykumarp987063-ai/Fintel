@@ -1,0 +1,43 @@
+SYNTHETIC DEMONSTRATION DOCUMENT — NOT A REAL COMPANY FILING
+Demo quarter: Q2 FY2026 (simulated). Fintel hackathon prototype only.
+Company label: TCS (demo ticker). All figures below are invented.
+
+1. Company Overview
+In this demo, TCS is a large IT services group covering application development, operations, consulting, and digital engineering for banking, insurance, retail, manufacturing, and public-services clients. It has a global delivery network and growing cloud, data, and applied-AI practices. This text is for retrieval practice. It is not an official filing.
+
+2. Revenue / Growth
+Simulated Q2 revenue still grows, but more slowly. Year-on-year growth is 2.4 percent, versus 6.1 percent a year earlier. Sequential growth versus Q1 is 0.6 percent.
+
+The slowdown sits in large transformations that clients can delay. Recurring maintenance grows about 3.8 percent. Discretionary digital work — new apps, experience redesigns, optional analytics — grows only 0.9 percent.
+
+North America is about 51 percent of demo revenue and drives the deceleration. Europe is mixed: manufacturing is cautious; some financial-services accounts still fund regulatory work. Emerging markets grow about 7 percent from a smaller base. Deal wins remain healthy in total value, but more of them are smaller and operational. A few multi-year platform deals slipped from Q2 into later quarters.
+
+3. Operating Margins
+Operating margin is 24.1 percent, down 90 basis points year on year and 40 basis points sequentially. Causes in this script: more lower-margin run work as discretionary projects pause; wage increments only partly offset by utilisation; and spending on AI tools, cloud labs, and specialist hiring before revenue follows.
+
+Utilisation is slightly lower because some starts were delayed. Subcontractor costs eased a little. Currency is a modest tailwind and is not blamed. Management keeps a medium-term margin ambition, but near-term operating margin is under pressure until higher-value discretionary work and automation recover.
+
+4. Business Demand
+Demand is mixed in the near term. Clients still spend on cost take-out, in-flight cloud migrations, cybersecurity, and compliance. They are slower to approve new discretionary programmes without a clear twelve-month payback.
+
+Weaker discretionary demand is central. Marketing-technology refreshes, optional AI proof-of-concept expansions, and greenfield digital products are postponed most often. Contracted AI and cloud programmes continue, but expansions are staged carefully. Banking is selective; insurance is stable; retail delays store-system overhauls; manufacturing delays factory-digital work.
+
+5. Management Observations
+Clients have not cancelled the IT agenda, but approvals take longer. Demo CEO: “We are seeing slower revenue growth and weaker discretionary demand. Operating margins are under pressure this quarter because the mix shifted toward run work while we continued to invest.”
+
+The demo CFO says bookings quality is acceptable, but pipeline conversion is slower. Leadership keeps investing in AI, cloud, and digital services for medium-term relevance even while near-term demand is mixed. Client talks focus on productivity: generation tools for maintenance, vendor consolidation, and smaller releases instead of large multi-year transformations.
+
+6. Outlook
+The next two quarters are cautious. Management does not guide to a sharp rebound in discretionary spend. Near-term demand stays mixed, and revenue growth is likely to stay below last year’s run rate until clients fund larger digital programmes again.
+
+Cloud modernisation and applied AI should lead once spending thaws. Until then, the demo outlook assumes mid-single-digit or lower growth and continued margin watchfulness, while protecting strategic investments. Recovery needs faster decisions in North American financial services and retail, plus conversion of delayed large deals. Downside is further postponement of discretionary work.
+
+7. Key Risks
+Key risks: prolonged weakness in discretionary demand; further operating-margin pressure if wages outrun automation; slowdown concentrated in a few large North American accounts; AI productisation execution; attrition in cloud and data skills; currency volatility; and budget freezes.
+
+Investment in AI, cloud, and digital services could also weigh on near-term profit if monetisation lags. Competitive pricing on large renewals is a margin risk.
+
+8. Major Developments
+This quarter in the demo: an internal AI coding assistant for delivery teams; cloud landing-zone accelerators for two fictional banking accounts; an extra digital engineering studio; a vendor-consolidation win in insurance operations; and a delay in a large retail transformation expected to start in Q2.
+
+This TCS demo supports queries on slower revenue growth, weaker discretionary demand, pressure on operating margins, mixed near-term demand, and investment in AI, cloud, and digital services. Prototype text only.
