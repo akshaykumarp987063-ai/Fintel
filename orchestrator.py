@@ -1,17 +1,36 @@
-"""Fintel hackathon MVP orchestrator — fully self-contained, offline, deterministic."""
+"""Fintel hackathon MVP orchestrator — live data with offline demo fallback."""
 
 from __future__ import annotations
 
 import logging
+import os
 import time
+from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 STATUS_OK = "OK"
 STATUS_DEGRADED = "DEGRADED"
 STATUS_UNAVAILABLE = "UNAVAILABLE"
+
+SUPPORTED_SYMBOLS = frozenset({"TCS", "INFY", "RELIANCE"})
+YAHOO_TICKERS = {"TCS": "TCS.NS", "INFY": "INFY.NS", "RELIANCE": "RELIANCE.NS"}
+LIVE_PROVIDER_NAME = "yfinance"
+NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
+LIVE_FETCH_TIMEOUT_SECONDS = 6
+
+# In-memory cache of last successful live fetches (symbol -> record)
+_MARKET_CACHE: dict[str, dict[str, Any]] = {}
 
 # ---------------------------------------------------------------------------
 # Demo users
@@ -30,32 +49,44 @@ DEMO_USERS: dict[str, dict[str, Any]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Demo market data (SIMULATED — no live API)
+# Demo market data (SIMULATED — offline fallback)
 # ---------------------------------------------------------------------------
 DEMO_MARKET_DATA: dict[str, dict[str, Any]] = {
     "TCS": {
         "symbol": "TCS",
         "price": 3412.0,
         "change_pct": -2.8,
+        "volume": 2_905_846,
         "volume_ratio": 2.1,
         "sentiment_score": -0.72,
         "source_type": "SIMULATED",
+        "data_status": "SIMULATED",
+        "provider": "demo",
+        "data_timestamp": "2026-01-01T00:00:00+00:00",
     },
     "INFY": {
         "symbol": "INFY",
         "price": 1585.0,
         "change_pct": -1.4,
+        "volume": 4_120_000,
         "volume_ratio": 1.5,
         "sentiment_score": -0.45,
         "source_type": "SIMULATED",
+        "data_status": "SIMULATED",
+        "provider": "demo",
+        "data_timestamp": "2026-01-01T00:00:00+00:00",
     },
     "RELIANCE": {
         "symbol": "RELIANCE",
         "price": 2890.0,
         "change_pct": 0.6,
+        "volume": 8_500_000,
         "volume_ratio": 0.9,
         "sentiment_score": 0.15,
         "source_type": "SIMULATED",
+        "data_status": "SIMULATED",
+        "provider": "demo",
+        "data_timestamp": "2026-01-01T00:00:00+00:00",
     },
 }
 
@@ -133,22 +164,257 @@ DEMO_DOCUMENT_CORPUS: list[dict[str, Any]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Market data provider abstraction
+# ---------------------------------------------------------------------------
+class MarketDataProvider(ABC):
+    @abstractmethod
+    def fetch(self, symbol: str) -> dict[str, Any] | None:
+        """Return a normalized market record or None if unavailable."""
+
+
+class LiveMarketDataProvider(MarketDataProvider):
+    """Fetches near-current quotes via yfinance (NSE symbols)."""
+
+    def fetch(self, symbol: str) -> dict[str, Any] | None:
+        import yfinance as yf
+
+        ticker_symbol = YAHOO_TICKERS.get(symbol)
+        if not ticker_symbol:
+            return None
+
+        ticker = yf.Ticker(ticker_symbol)
+        info = ticker.info or {}
+
+        price = info.get("regularMarketPrice") or info.get("currentPrice")
+        if price is None:
+            history = ticker.history(period="1d")
+            if history is not None and not history.empty:
+                price = float(history["Close"].iloc[-1])
+
+        if price is None:
+            return None
+
+        change_pct = info.get("regularMarketChangePercent")
+        if change_pct is None:
+            prev_close = info.get("regularMarketPreviousClose") or info.get("previousClose")
+            if prev_close:
+                change_pct = ((float(price) - float(prev_close)) / float(prev_close)) * 100
+
+        volume = info.get("regularMarketVolume") or info.get("volume")
+        history = ticker.history(period="10d")
+        volume_ratio = _compute_volume_ratio(history)
+        data_timestamp = _extract_data_timestamp(history, info)
+
+        return {
+            "symbol": symbol,
+            "price": round(float(price), 2),
+            "change_pct": round(float(change_pct), 2) if change_pct is not None else None,
+            "volume": int(volume) if volume is not None else None,
+            "volume_ratio": volume_ratio,
+            "data_timestamp": data_timestamp,
+            "source_type": "LIVE",
+            "data_status": "LIVE",
+            "provider": LIVE_PROVIDER_NAME,
+        }
+
+
+class FallbackMarketDataProvider(MarketDataProvider):
+    """Deterministic demo quotes — works fully offline."""
+
+    def fetch(self, symbol: str) -> dict[str, Any] | None:
+        data = DEMO_MARKET_DATA.get(symbol)
+        if not data:
+            return None
+        record = dict(data)
+        record["data_status"] = "SIMULATED"
+        record["source_type"] = "SIMULATED"
+        return record
+
+
+def _compute_volume_ratio(history: Any) -> float | None:
+    if history is None or getattr(history, "empty", True):
+        return None
+    if len(history) < 2:
+        return None
+
+    today_volume = history["Volume"].iloc[-1]
+    prior_volumes = history["Volume"].iloc[:-1]
+    if prior_volumes.empty:
+        return None
+
+    avg_volume = float(prior_volumes.mean())
+    if avg_volume <= 0:
+        return None
+
+    return round(float(today_volume) / avg_volume, 2)
+
+
+def _extract_data_timestamp(history: Any, info: dict[str, Any]) -> str:
+    if history is not None and not getattr(history, "empty", True):
+        ts = history.index[-1]
+        if hasattr(ts, "to_pydatetime"):
+            ts = ts.to_pydatetime()
+        if getattr(ts, "tzinfo", None) is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc).isoformat()
+
+    market_time = info.get("regularMarketTime")
+    if market_time:
+        return datetime.fromtimestamp(int(market_time), tz=timezone.utc).isoformat()
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _attach_sentiment(market_data: dict[str, Any]) -> dict[str, Any]:
+    """Add sentiment score without blocking the core pipeline."""
+    symbol = market_data.get("symbol", "")
+    news = _fetch_news_sentiment(symbol)
+    if news is not None:
+        market_data["sentiment_score"] = news["score"]
+        market_data["sentiment_source"] = news["source"]
+        market_data["sentiment_headline"] = news.get("headline")
+        return market_data
+
+    demo = DEMO_MARKET_DATA.get(symbol, {})
+    market_data["sentiment_score"] = demo.get("sentiment_score", 0.0)
+    market_data["sentiment_source"] = "DETERMINISTIC_FALLBACK"
+    market_data["sentiment_headline"] = None
+    return market_data
+
+
+def _fetch_news_sentiment(symbol: str) -> dict[str, Any] | None:
+    if not NEWS_API_KEY:
+        return None
+
+    company_names = {
+        "TCS": "Tata Consultancy Services",
+        "INFY": "Infosys",
+        "RELIANCE": "Reliance Industries",
+    }
+    query = company_names.get(symbol, symbol)
+    params = urlencode(
+        {
+            "q": query,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": 5,
+            "apiKey": NEWS_API_KEY,
+        }
+    )
+    url = f"https://newsapi.org/v2/everything?{params}"
+
+    try:
+        request = Request(url, headers={"User-Agent": "Fintel/1.0"})
+        with urlopen(request, timeout=8) as response:
+            payload = response.read().decode("utf-8")
+        import json
+
+        data = json.loads(payload)
+        if data.get("status") != "ok":
+            return None
+
+        articles = data.get("articles") or []
+        if not articles:
+            return None
+
+        bearish_terms = ["fall", "drop", "decline", "miss", "weak", "cut", "loss", "down"]
+        bullish_terms = ["rise", "gain", "beat", "strong", "growth", "up", "surge", "record"]
+        score = 0.0
+        headline = articles[0].get("title", "")
+
+        for article in articles[:5]:
+            title = (article.get("title") or "").lower()
+            score += sum(0.15 for term in bullish_terms if term in title)
+            score -= sum(0.15 for term in bearish_terms if term in title)
+
+        score = max(-1.0, min(1.0, round(score, 2)))
+        return {"score": score, "source": "NEWS_API", "headline": headline}
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
+        logger.warning("News API unavailable for %s: %s", symbol, exc)
+        return None
+
+
+def _fetch_live_record(symbol: str) -> dict[str, Any] | None:
+    """Attempt a live fetch with a hard timeout so offline demo mode stays fast."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(LiveMarketDataProvider().fetch, symbol)
+        try:
+            return future.result(timeout=LIVE_FETCH_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logger.warning("Live market fetch timed out or failed for %s: %s", symbol, exc)
+            return None
+
+
+def get_live_market_data(symbol: str, force_refresh: bool = False) -> dict[str, Any]:
+    """
+    Live → cached → demo fallback chain.
+
+    Returns a normalized market record with data_status of LIVE, CACHED, or SIMULATED.
+    """
+    symbol = symbol.upper().strip()
+    if not symbol:
+        return _market_error("No symbol provided.")
+    if symbol not in SUPPORTED_SYMBOLS:
+        return _market_error(f"Unsupported symbol: {symbol}. Supported: TCS, INFY, RELIANCE.")
+
+    _ = force_refresh  # reserved for explicit refresh semantics; always attempts live first
+
+    live_api_attempted = True
+    try:
+        live_record = _fetch_live_record(symbol)
+        if live_record and live_record.get("price") is not None:
+            live_record = _attach_sentiment(live_record)
+            _MARKET_CACHE[symbol] = dict(live_record)
+            live_record["live_api_attempted"] = True
+            live_record["live_api_success"] = True
+            return live_record
+    except Exception as exc:
+        logger.warning("Live market fetch failed for %s: %s", symbol, exc)
+
+    if symbol in _MARKET_CACHE:
+        cached = dict(_MARKET_CACHE[symbol])
+        cached["data_status"] = "CACHED"
+        cached["source_type"] = "CACHED"
+        cached["provider"] = cached.get("provider", LIVE_PROVIDER_NAME)
+        cached["live_api_attempted"] = live_api_attempted
+        cached["live_api_success"] = False
+        return cached
+
+    fallback = FallbackMarketDataProvider().fetch(symbol)
+    if fallback:
+        fallback = _attach_sentiment(fallback)
+        fallback["live_api_attempted"] = live_api_attempted
+        fallback["live_api_success"] = False
+        return fallback
+
+    return _market_error(f"No market data available for {symbol}.")
+
+
+def _market_error(message: str) -> dict[str, Any]:
+    return {
+        "symbol": "",
+        "price": None,
+        "change_pct": None,
+        "volume": None,
+        "volume_ratio": None,
+        "data_timestamp": None,
+        "source_type": "UNAVAILABLE",
+        "data_status": "UNAVAILABLE",
+        "provider": None,
+        "error": message,
+        "live_api_attempted": False,
+        "live_api_success": False,
+    }
+
+
+def get_market_data(symbol: str, force_refresh: bool = False) -> dict[str, Any]:
+    """Backward-compatible entry point used by the analysis pipeline."""
+    return get_live_market_data(symbol, force_refresh=force_refresh)
+
+
 def get_user_profile(user_id: str) -> dict[str, Any] | None:
     return DEMO_USERS.get(user_id)
-
-
-def get_market_data(symbol: str) -> dict[str, Any]:
-    data = DEMO_MARKET_DATA.get(symbol.upper())
-    if data:
-        return dict(data)
-    return {
-        "symbol": symbol.upper(),
-        "price": 0.0,
-        "change_pct": 0.0,
-        "volume_ratio": 1.0,
-        "sentiment_score": 0.0,
-        "source_type": "SIMULATED",
-    }
 
 
 def retrieve_documents(query: str, symbol: str, top_k: int = 2) -> list[dict[str, Any]]:
@@ -175,6 +441,7 @@ def retrieve_documents(query: str, symbol: str, top_k: int = 2) -> list[dict[str
             "text": doc["text"],
             "score": score,
             "display_title": doc["title"],
+            "source": doc["source"],
         })
     return results
 
@@ -183,10 +450,13 @@ def retrieve_documents(query: str, symbol: str, top_k: int = 2) -> list[dict[str
 # Agents
 # ---------------------------------------------------------------------------
 def technical_agent(market_data: dict[str, Any]) -> dict[str, Any]:
-    change_pct = market_data.get("change_pct", 0.0)
-    volume_ratio = market_data.get("volume_ratio", 1.0)
+    change_pct = market_data.get("change_pct")
+    volume_ratio = market_data.get("volume_ratio")
     symbol = market_data.get("symbol", "UNKNOWN")
+    data_status = market_data.get("data_status", "SIMULATED")
 
+    if change_pct is None:
+        change_pct = 0.0
     if change_pct > 1:
         momentum = "BULLISH"
     elif change_pct < -1:
@@ -194,7 +464,9 @@ def technical_agent(market_data: dict[str, Any]) -> dict[str, Any]:
     else:
         momentum = "NEUTRAL"
 
-    if volume_ratio > 2:
+    if volume_ratio is None:
+        volume_label = "Volume anomaly unavailable"
+    elif volume_ratio > 2:
         volume_label = "ANOMALY"
     elif volume_ratio > 1.2:
         volume_label = "ELEVATED"
@@ -202,19 +474,30 @@ def technical_agent(market_data: dict[str, Any]) -> dict[str, Any]:
         volume_label = "NORMAL"
 
     confidence = 0.82 if momentum != "NEUTRAL" else 0.55
-    if volume_label == "ANOMALY":
+    if volume_ratio is not None and volume_ratio > 2:
         confidence = min(0.92, confidence + 0.08)
+
+    status_label = data_status.lower()
+    if volume_ratio is None:
+        volume_reason = "Volume anomaly unavailable — insufficient historical data."
+    else:
+        volume_reason = f"Volume is {volume_ratio:.1f}x recent average ({volume_label})."
 
     return {
         "agent": "technical",
         "signal": momentum,
         "confidence": round(confidence, 2),
         "reasoning": (
-            f"{symbol} price change is {change_pct:+.1f}% (momentum: {momentum}). "
-            f"Volume is {volume_ratio:.1f}x normal ({volume_label})."
+            f"{symbol} price change is {change_pct:+.1f}% (momentum: {momentum}) "
+            f"using {status_label} market data. {volume_reason}"
         ),
         "evidence": [
-            {"change_pct": change_pct, "volume_ratio": volume_ratio, "volume_label": volume_label},
+            {
+                "change_pct": change_pct,
+                "volume_ratio": volume_ratio,
+                "volume_label": volume_label,
+                "data_status": data_status,
+            },
         ],
         "sources": [],
         "status": STATUS_OK,
@@ -268,9 +551,12 @@ def fundamental_agent(
         "confidence": round(confidence, 2),
         "reasoning": (
             f"Retrieved financial evidence ({primary}) indicates {outlook} for {symbol}. "
-            f"Cited {len(documents)} simulated filing(s)."
+            f"Cited {len(documents)} filing(s) from the demo corpus."
         ),
-        "evidence": [{"title": doc["title"], "score": doc["score"]} for doc in documents],
+        "evidence": [
+            {"title": doc["title"], "text": doc["text"], "score": doc["score"], "source": doc["source"]}
+            for doc in documents
+        ],
         "sources": sources,
         "status": STATUS_OK,
     }
@@ -279,6 +565,8 @@ def fundamental_agent(
 def sentiment_agent(market_data: dict[str, Any]) -> dict[str, Any]:
     score = market_data.get("sentiment_score", 0.0)
     symbol = market_data.get("symbol", "UNKNOWN")
+    sentiment_source = market_data.get("sentiment_source", "DETERMINISTIC_FALLBACK")
+    headline = market_data.get("sentiment_headline")
 
     if score > 0.3:
         signal = "POSITIVE"
@@ -292,16 +580,25 @@ def sentiment_agent(market_data: dict[str, Any]) -> dict[str, Any]:
 
     confidence = min(0.90, 0.60 + abs(score) * 0.35)
 
+    source_labels = {
+        "NEWS_API": "live news headlines",
+        "DETERMINISTIC_FALLBACK": "deterministic demo fallback",
+        "SIMULATED": "simulated demo sentiment",
+    }
+    source_label = source_labels.get(sentiment_source, sentiment_source.lower())
+
+    reasoning = f"Sentiment score for {symbol} is {score:+.2f} ({signal}) from {source_label}."
+    if headline and sentiment_source == "NEWS_API":
+        reasoning += f' Latest headline: "{headline}".'
+
     return {
         "agent": "sentiment",
         "signal": signal,
         "normalized_signal": normalized,
         "confidence": round(confidence, 2),
-        "reasoning": (
-            f"Simulated sentiment score for {symbol} is {score:+.2f} ({signal})."
-        ),
-        "evidence": [{"sentiment_score": score}],
-        "sources": [],
+        "reasoning": reasoning,
+        "evidence": [{"sentiment_score": score, "source": sentiment_source}],
+        "sources": [sentiment_source] if sentiment_source else [],
         "status": STATUS_OK,
         "dimensions": {"sentiment": signal},
     }
@@ -325,6 +622,7 @@ def synthesis_agent(
     fundamental: dict[str, Any],
     sentiment: dict[str, Any],
     portfolio: dict[str, Any],
+    market_data: dict[str, Any],
 ) -> dict[str, Any]:
     agents = [technical, fundamental, sentiment]
     normalized = []
@@ -359,10 +657,11 @@ def synthesis_agent(
 
     symbol = portfolio.get("symbol", "")
     user_name = portfolio.get("user_name", "Investor")
+    data_status = market_data.get("data_status", "SIMULATED")
 
     conflict_note = " Signal conflict detected." if has_conflict else ""
     summary = (
-        f"Simulated analysis for {symbol}: overall {overall} view with "
+        f"Market intelligence for {symbol} ({data_status} data): overall {overall} signal with "
         f"{confidence:.0%} confidence.{conflict_note} "
         f"This is illustrative intelligence for {user_name}'s portfolio — not investment advice."
     )
@@ -390,7 +689,9 @@ def calculate_portfolio_impact(
 ) -> dict[str, Any]:
     portfolio = user_profile.get("portfolio", {})
     exposure = portfolio.get(symbol.upper(), 0.0)
-    change_pct = market_data.get("change_pct", 0.0)
+    change_pct = market_data.get("change_pct")
+    if change_pct is None:
+        change_pct = 0.0
     direct_impact_pct = round(exposure * change_pct, 2)
 
     if exposure >= 0.40:
@@ -421,39 +722,63 @@ def _build_reasoning_chain(
     synthesis: dict[str, Any],
 ) -> list[str]:
     symbol = market_data.get("symbol", "UNKNOWN")
-    change = market_data.get("change_pct", 0.0)
-    volume_ratio = market_data.get("volume_ratio", 1.0)
+    change = market_data.get("change_pct")
+    volume_ratio = market_data.get("volume_ratio")
+    data_status = market_data.get("data_status", "SIMULATED")
+    provider = market_data.get("provider", "unknown")
     chain: list[str] = []
 
-    chain.append(f"{symbol} price changed by {change:+.1f}% (simulated market data).")
-    chain.append(f"Trading volume is {volume_ratio:.1f}x normal.")
+    if change is not None:
+        chain.append(
+            f"[LIVE MARKET OBSERVATION] {symbol} price changed by {change:+.1f}% "
+            f"({data_status} data via {provider})."
+        )
+    else:
+        chain.append(
+            f"[LIVE MARKET OBSERVATION] {symbol} price change unavailable ({data_status} data)."
+        )
+
+    if volume_ratio is not None:
+        chain.append(
+            f"[LIVE MARKET OBSERVATION] Trading volume is {volume_ratio:.1f}x recent average."
+        )
+    else:
+        chain.append("[LIVE MARKET OBSERVATION] Volume anomaly unavailable — insufficient history.")
 
     if documents:
         chain.append(
-            f"Retrieved financial evidence ({documents[0]['title']}) indicates "
-            f"{fundamental.get('reasoning', 'fundamental factors to review').split(' indicates ')[-1]}"
-            if " indicates " in fundamental.get("reasoning", "")
-            else f"Retrieved financial evidence from {documents[0]['title']}."
+            f"[FINANCIAL EVIDENCE] Retrieved {documents[0]['title']} "
+            f"(relevance {documents[0]['score']:.0%}) — "
+            f"{fundamental.get('reasoning', 'fundamental factors to review')}"
         )
     elif fundamental.get("signal") == "INSUFFICIENT_EVIDENCE":
-        chain.append("No financial filings were available; fundamental analysis is degraded.")
+        chain.append(
+            "[FINANCIAL EVIDENCE] No financial filings were available; fundamental analysis is degraded."
+        )
 
-    chain.append(f"Sentiment signal is {sentiment.get('signal', 'NEUTRAL').lower()}.")
+    chain.append(
+        f"[SENTIMENT SIGNAL] {sentiment.get('reasoning', 'Sentiment signal unavailable.')}"
+    )
 
     exposure_pct = portfolio_impact.get("exposure", 0.0) * 100
     user = portfolio_impact.get("user", "Investor")
-    chain.append(f"{symbol} represents {exposure_pct:.0f}% of {user}'s portfolio.")
+    chain.append(
+        f"[USER PORTFOLIO EXPOSURE] {symbol} represents {exposure_pct:.0f}% of {user}'s portfolio."
+    )
 
     chain.append(
-        f"Estimated direct portfolio impact: {portfolio_impact.get('direct_impact_pct', 0):+.2f}% "
+        f"[FINAL IMPACT] Estimated direct portfolio impact: "
+        f"{portfolio_impact.get('direct_impact_pct', 0):+.2f}% "
         f"— classified as {portfolio_impact.get('classification', 'LOW')}."
     )
 
     if synthesis.get("has_conflict"):
-        chain.append("Signal conflict detected across agents; confidence was reduced.")
+        chain.append(
+            "[FINAL IMPACT] Signal conflict detected across agents; confidence was reduced."
+        )
 
     chain.append(
-        f"Overall synthesized signal: {synthesis.get('overall_signal', 'NEUTRAL')} "
+        f"[FINAL IMPACT] Overall synthesized signal: {synthesis.get('overall_signal', 'NEUTRAL')} "
         f"at {synthesis.get('confidence', 0):.0%} confidence."
     )
 
@@ -500,6 +825,7 @@ def _empty_result(summary: str, status: str = "error") -> dict[str, Any]:
         "summary": summary,
         "reasoning_chain": [],
         "sources": [],
+        "retrieved_evidence": [],
         "agents": {},
         "market_data": {},
         "signal_dimensions": {},
@@ -509,9 +835,23 @@ def _empty_result(summary: str, status: str = "error") -> dict[str, Any]:
             "portfolio_concentration": 0.0,
             "agents_completed": 0,
             "sources_retrieved": 0,
+            "market_data_source": "UNAVAILABLE",
+            "data_freshness": None,
+            "live_api_success": False,
         },
         "status": status,
     }
+
+
+def _market_data_label(market_data: dict[str, Any]) -> str:
+    status = market_data.get("data_status", "SIMULATED")
+    provider = market_data.get("provider", "unknown")
+    symbol = market_data.get("symbol", "")
+    if status == "LIVE":
+        return f"Live quote — {symbol} ({provider})"
+    if status == "CACHED":
+        return f"Cached quote — {symbol} ({provider})"
+    return f"Simulated demo quote — {symbol}"
 
 
 def analyze_market_event(
@@ -519,6 +859,8 @@ def analyze_market_event(
     user_id: str,
     simulate_missing_filing: bool = False,
     simulate_agent_conflict: bool = False,
+    force_market_refresh: bool = False,
+    market_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the full Fintel analysis pipeline."""
     start = time.perf_counter()
@@ -531,13 +873,18 @@ def analyze_market_event(
         if not user_profile:
             return _empty_result(f"Unknown investor: {user_id}.")
 
-        symbol = symbol.upper()
-        market_data = get_market_data(symbol)
+        symbol = symbol.upper().strip()
+        if market_data is None:
+            market_data = get_live_market_data(symbol, force_refresh=force_market_refresh)
+
+        if market_data.get("error"):
+            return _empty_result(market_data["error"])
+        if market_data.get("price") is None:
+            return _empty_result(f"Market data unavailable for {symbol}.")
 
         query = f"{symbol} quarterly financial disclosure revenue margin growth"
         documents = [] if simulate_missing_filing else retrieve_documents(query, symbol, top_k=2)
 
-        # Run agents in parallel
         technical: dict[str, Any] = {}
         fundamental: dict[str, Any] = {}
         sentiment: dict[str, Any] = {}
@@ -586,7 +933,9 @@ def analyze_market_event(
             "user_name": user_profile["name"],
             "portfolio": user_profile["portfolio"],
         }
-        synthesis = synthesis_agent(technical, fundamental, sentiment, portfolio_ctx)
+        synthesis = synthesis_agent(
+            technical, fundamental, sentiment, portfolio_ctx, market_data
+        )
         portfolio_impact = calculate_portfolio_impact(
             user_profile, symbol, market_data, synthesis["overall_signal"]
         )
@@ -597,13 +946,13 @@ def analyze_market_event(
         )
 
         sources: list[dict[str, str]] = [
-            {"type": "market_data", "label": f"Simulated quote — {symbol}"},
+            {"type": "market_data", "label": _market_data_label(market_data)},
         ]
         for doc in documents:
             sources.append({"type": "rag", "label": doc["title"]})
         for agent in (technical, fundamental, sentiment):
             for src in agent.get("sources", []):
-                entry = {"type": agent["agent"], "label": src}
+                entry = {"type": agent["agent"], "label": str(src)}
                 if entry not in sources:
                     sources.append(entry)
 
@@ -615,8 +964,10 @@ def analyze_market_event(
         latency = round(time.perf_counter() - start, 3)
         pipeline_status = "success"
         if simulate_missing_filing or fundamental.get("status") == STATUS_DEGRADED:
-            pipeline_status = "success"  # degraded but running
+            pipeline_status = "success"
         if any(a.get("status") == STATUS_UNAVAILABLE for a in (technical, fundamental, sentiment)):
+            pipeline_status = "degraded"
+        if market_data.get("data_status") == "CACHED":
             pipeline_status = "degraded"
 
         signal_dimensions = {
@@ -638,6 +989,7 @@ def analyze_market_event(
             "summary": synthesis["summary"],
             "reasoning_chain": reasoning_chain,
             "sources": sources,
+            "retrieved_evidence": documents,
             "agents": {
                 "technical": technical,
                 "fundamental": fundamental,
@@ -651,6 +1003,10 @@ def analyze_market_event(
                 "portfolio_concentration": portfolio_impact["exposure"],
                 "agents_completed": agents_completed,
                 "sources_retrieved": len(documents),
+                "market_data_source": market_data.get("data_status", "SIMULATED"),
+                "data_freshness": market_data.get("data_timestamp"),
+                "live_api_success": market_data.get("live_api_success", False),
+                "provider": market_data.get("provider"),
             },
             "status": pipeline_status,
         }
