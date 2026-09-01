@@ -116,7 +116,9 @@ if analyze_clicked:
         m2.metric("Change", f"{change:+.2f}%" if change is not None else "—")
         vr = md.get("volume_ratio")
         m3.metric("Volume Ratio", f"{vr:.1f}x" if vr is not None else "Unavailable")
-        m4.metric("Sentiment Score", f"{md.get('sentiment_score', 0):+.2f}")
+        sentiment_agent_data = result["agents"].get("sentiment", {})
+        sentiment_score = sentiment_agent_data.get("score", 0.0)
+        m4.metric("Sentiment Score", f"{sentiment_score:+.2f}")
 
         st.subheader("Signal Classification")
         dims = result["signal_dimensions"]
@@ -135,7 +137,35 @@ if analyze_clicked:
                 st.metric("Signal", agent.get("signal", "—"))
                 st.caption(f"Confidence: {agent.get('confidence', 0):.0%}")
                 st.caption(f"Status: {agent.get('status', '—')}")
+                if key == "sentiment":
+                    src_type = agent.get("sentiment_source", "DEMO_FALLBACK")
+                    src_label = "LIVE NEWS" if src_type == "LIVE_NEWS" else "DETERMINISTIC DEMO FALLBACK"
+                    st.caption(f"Sentiment Source: **{src_label}**")
                 st.write(agent.get("reasoning", ""))
+
+        sentiment_agent_data = agents.get("sentiment", {})
+        if sentiment_agent_data:
+            st.subheader("Sentiment Intelligence")
+            src_type = sentiment_agent_data.get("sentiment_source", "DEMO_FALLBACK")
+            if src_type == "LIVE_NEWS":
+                st.markdown("**Sentiment Source:** LIVE NEWS")
+                headline_count = sentiment_agent_data.get("news_headlines_retrieved", 0)
+                st.caption(f"{headline_count} headline(s) retrieved | Score: {sentiment_agent_data.get('score', 0):+.2f}")
+                for headline in sentiment_agent_data.get("news_headlines", []):
+                    with st.expander(f"{headline.get('source', 'Unknown')} — {headline.get('title', '')[:80]}"):
+                        st.write(headline.get("title", ""))
+                        if headline.get("description"):
+                            st.caption(headline["description"])
+                        if headline.get("published_at"):
+                            st.caption(f"Published: {headline['published_at']}")
+                        if headline.get("url"):
+                            st.markdown(f"[Read article]({headline['url']})")
+            else:
+                st.markdown("**Sentiment Source:** DETERMINISTIC DEMO FALLBACK")
+                st.caption(
+                    f"Score: {sentiment_agent_data.get('score', 0):+.2f} — "
+                    "live news was unavailable; using demo fallback."
+                )
 
         st.subheader("Evidence & Sources")
         for doc in result.get("retrieved_evidence", []):
@@ -143,7 +173,12 @@ if analyze_clicked:
                 st.caption(f"Source: {doc.get('source', doc['title'])}")
                 st.write(doc.get("text", ""))
         for src in result["sources"]:
-            st.write(f"- **[{src['type']}]** {src['label']}")
+            label = src.get("label", "")
+            url = src.get("url")
+            if url:
+                st.write(f"- **[{src['type']}]** [{label}]({url})")
+            else:
+                st.write(f"- **[{src['type']}]** {label}")
 
         st.subheader("Personalized Portfolio Impact")
         pi = result["portfolio_impact"]
@@ -173,9 +208,15 @@ if analyze_clicked:
         s4.metric("Agents Completed", metrics.get("agents_completed", 0))
         s5.metric("Sources Retrieved", metrics.get("sources_retrieved", 0))
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Market Data Source", metrics.get("market_data_source", "—"))
         freshness = metrics.get("data_freshness")
         m2.metric("Data Freshness", freshness[:19] if freshness else "—")
         api_ok = metrics.get("live_api_success", False)
         m3.metric("Live API", "Success" if api_ok else "Fallback")
+        sentiment_src = metrics.get("sentiment_source", "DEMO_FALLBACK")
+        m4.metric("Sentiment Source", sentiment_src)
+
+        n1, n2 = st.columns(2)
+        n1.metric("News Headlines Retrieved", metrics.get("news_headlines_retrieved", 0))
+        n2.metric("Sentiment Score", f"{sentiment_agent_data.get('score', 0):+.2f}")

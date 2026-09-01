@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -28,6 +29,21 @@ YAHOO_TICKERS = {"TCS": "TCS.NS", "INFY": "INFY.NS", "RELIANCE": "RELIANCE.NS"}
 LIVE_PROVIDER_NAME = "yfinance"
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
 LIVE_FETCH_TIMEOUT_SECONDS = 6
+NEWS_FETCH_TIMEOUT_SECONDS = 5
+NEWS_PAGE_SIZE = 5
+
+COMPANY_NEWS_QUERIES = {
+    "TCS": '"Tata Consultancy Services" OR TCS stock',
+    "INFY": '"Infosys" OR INFY stock',
+    "RELIANCE": '"Reliance Industries" OR Reliance stock',
+}
+
+POSITIVE_SENTIMENT_TERMS = (
+    "growth", "profit", "upgrade", "strong", "beat", "expansion", "record", "positive",
+)
+NEGATIVE_SENTIMENT_TERMS = (
+    "loss", "decline", "weak", "downgrade", "lawsuit", "risk", "miss", "slowdown", "negative",
+)
 
 # In-memory cache of last successful live fetches (symbol -> record)
 _MARKET_CACHE: dict[str, dict[str, Any]] = {}
@@ -266,73 +282,100 @@ def _extract_data_timestamp(history: Any, info: dict[str, Any]) -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _attach_sentiment(market_data: dict[str, Any]) -> dict[str, Any]:
-    """Add sentiment score without blocking the core pipeline."""
-    symbol = market_data.get("symbol", "")
-    news = _fetch_news_sentiment(symbol)
-    if news is not None:
-        market_data["sentiment_score"] = news["score"]
-        market_data["sentiment_source"] = news["source"]
-        market_data["sentiment_headline"] = news.get("headline")
-        return market_data
-
-    demo = DEMO_MARKET_DATA.get(symbol, {})
-    market_data["sentiment_score"] = demo.get("sentiment_score", 0.0)
-    market_data["sentiment_source"] = "DETERMINISTIC_FALLBACK"
-    market_data["sentiment_headline"] = None
-    return market_data
+def _score_text_sentiment(text: str) -> float:
+    """Deterministic keyword-based sentiment for headline text."""
+    lowered = text.lower()
+    positive_hits = sum(1 for term in POSITIVE_SENTIMENT_TERMS if term in lowered)
+    negative_hits = sum(1 for term in NEGATIVE_SENTIMENT_TERMS if term in lowered)
+    if positive_hits == 0 and negative_hits == 0:
+        return 0.0
+    raw = (positive_hits - negative_hits) / max(positive_hits + negative_hits, 1)
+    return round(max(-1.0, min(1.0, raw)), 2)
 
 
-def _fetch_news_sentiment(symbol: str) -> dict[str, Any] | None:
-    if not NEWS_API_KEY:
+def _normalize_news_article(article: dict[str, Any]) -> dict[str, Any] | None:
+    title = (article.get("title") or "").strip()
+    if not title:
         return None
-
-    company_names = {
-        "TCS": "Tata Consultancy Services",
-        "INFY": "Infosys",
-        "RELIANCE": "Reliance Industries",
+    source_info = article.get("source") or {}
+    publisher = source_info.get("name") if isinstance(source_info, dict) else str(source_info or "")
+    url = article.get("url") or ""
+    return {
+        "title": title,
+        "description": (article.get("description") or "").strip(),
+        "url": url if url.startswith("http") else "",
+        "published_at": article.get("publishedAt") or "",
+        "source": publisher or "Unknown",
     }
-    query = company_names.get(symbol, symbol)
+
+
+def _fetch_news_api(symbol: str) -> list[dict[str, Any]]:
+    """Call NewsAPI once; returns normalized articles or raises on hard failure."""
+    query = COMPANY_NEWS_QUERIES.get(symbol, symbol)
     params = urlencode(
         {
             "q": query,
             "language": "en",
             "sortBy": "publishedAt",
-            "pageSize": 5,
+            "pageSize": NEWS_PAGE_SIZE,
             "apiKey": NEWS_API_KEY,
         }
     )
     url = f"https://newsapi.org/v2/everything?{params}"
+    request = Request(url, headers={"User-Agent": "Fintel/1.0"})
+    with urlopen(request, timeout=NEWS_FETCH_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    if payload.get("status") != "ok":
+        raise ValueError(payload.get("message", "News API returned non-ok status"))
+
+    articles: list[dict[str, Any]] = []
+    for raw in payload.get("articles") or []:
+        normalized = _normalize_news_article(raw)
+        if normalized:
+            articles.append(normalized)
+    return articles
+
+
+def fetch_live_news(symbol: str) -> dict[str, Any] | None:
+    """
+    Fetch recent headlines and compute aggregate sentiment.
+
+    Returns None on missing key, API errors, timeouts, rate limits, or empty results.
+    """
+    if not NEWS_API_KEY:
+        return None
+
+    symbol = symbol.upper()
+    if symbol not in SUPPORTED_SYMBOLS:
+        return None
 
     try:
-        request = Request(url, headers={"User-Agent": "Fintel/1.0"})
-        with urlopen(request, timeout=8) as response:
-            payload = response.read().decode("utf-8")
-        import json
-
-        data = json.loads(payload)
-        if data.get("status") != "ok":
-            return None
-
-        articles = data.get("articles") or []
-        if not articles:
-            return None
-
-        bearish_terms = ["fall", "drop", "decline", "miss", "weak", "cut", "loss", "down"]
-        bullish_terms = ["rise", "gain", "beat", "strong", "growth", "up", "surge", "record"]
-        score = 0.0
-        headline = articles[0].get("title", "")
-
-        for article in articles[:5]:
-            title = (article.get("title") or "").lower()
-            score += sum(0.15 for term in bullish_terms if term in title)
-            score -= sum(0.15 for term in bearish_terms if term in title)
-
-        score = max(-1.0, min(1.0, round(score, 2)))
-        return {"score": score, "source": "NEWS_API", "headline": headline}
-    except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
-        logger.warning("News API unavailable for %s: %s", symbol, exc)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch_news_api, symbol)
+            articles = future.result(timeout=NEWS_FETCH_TIMEOUT_SECONDS + 1)
+    except Exception as exc:
+        logger.warning("Live news fetch failed for %s: %s", symbol, exc)
         return None
+
+    if not articles:
+        return None
+
+    per_headline_scores: list[float] = []
+    for article in articles:
+        text = f"{article['title']} {article['description']}"
+        per_headline_scores.append(_score_text_sentiment(text))
+
+    aggregate_score = round(sum(per_headline_scores) / len(per_headline_scores), 2)
+    return {
+        "articles": articles,
+        "score": aggregate_score,
+        "headline_count": len(articles),
+    }
+
+
+def get_demo_sentiment(symbol: str) -> float:
+    return DEMO_MARKET_DATA.get(symbol.upper(), {}).get("sentiment_score", 0.0)
 
 
 def _fetch_live_record(symbol: str) -> dict[str, Any] | None:
@@ -364,7 +407,6 @@ def get_live_market_data(symbol: str, force_refresh: bool = False) -> dict[str, 
     try:
         live_record = _fetch_live_record(symbol)
         if live_record and live_record.get("price") is not None:
-            live_record = _attach_sentiment(live_record)
             _MARKET_CACHE[symbol] = dict(live_record)
             live_record["live_api_attempted"] = True
             live_record["live_api_success"] = True
@@ -383,7 +425,6 @@ def get_live_market_data(symbol: str, force_refresh: bool = False) -> dict[str, 
 
     fallback = FallbackMarketDataProvider().fetch(symbol)
     if fallback:
-        fallback = _attach_sentiment(fallback)
         fallback["live_api_attempted"] = live_api_attempted
         fallback["live_api_success"] = False
         return fallback
@@ -562,12 +603,61 @@ def fundamental_agent(
     }
 
 
-def sentiment_agent(market_data: dict[str, Any]) -> dict[str, Any]:
-    score = market_data.get("sentiment_score", 0.0)
+def sentiment_agent(
+    market_data: dict[str, Any],
+    news_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     symbol = market_data.get("symbol", "UNKNOWN")
-    sentiment_source = market_data.get("sentiment_source", "DETERMINISTIC_FALLBACK")
-    headline = market_data.get("sentiment_headline")
 
+    if news_result and news_result.get("articles"):
+        score = news_result["score"]
+        articles = news_result["articles"]
+        headline_count = news_result.get("headline_count", len(articles))
+
+        if score > 0.3:
+            signal = "POSITIVE"
+            normalized = "BULLISH"
+        elif score < -0.3:
+            signal = "NEGATIVE"
+            normalized = "BEARISH"
+        else:
+            signal = "NEUTRAL"
+            normalized = "NEUTRAL"
+
+        confidence = min(0.90, 0.60 + abs(score) * 0.35)
+        tone = signal.lower()
+        reasoning = (
+            f"{headline_count} recent headline(s) from live news produced an aggregate "
+            f"{tone} sentiment signal (score {score:+.2f}) for {symbol}."
+        )
+
+        evidence = [article["title"] for article in articles]
+        sources = []
+        for article in articles:
+            label = f"{article['source']} — {article['title']}"
+            entry: dict[str, str] = {"type": "news", "label": label}
+            if article.get("url"):
+                entry["url"] = article["url"]
+            sources.append(entry)
+
+        return {
+            "agent": "sentiment",
+            "signal": signal,
+            "normalized_signal": normalized,
+            "confidence": round(confidence, 2),
+            "reasoning": reasoning,
+            "evidence": evidence,
+            "sources": sources,
+            "status": STATUS_OK,
+            "source_type": "LIVE",
+            "sentiment_source": "LIVE_NEWS",
+            "score": score,
+            "news_headlines": articles,
+            "news_headlines_retrieved": headline_count,
+            "dimensions": {"sentiment": signal},
+        }
+
+    score = get_demo_sentiment(symbol)
     if score > 0.3:
         signal = "POSITIVE"
         normalized = "BULLISH"
@@ -579,17 +669,10 @@ def sentiment_agent(market_data: dict[str, Any]) -> dict[str, Any]:
         normalized = "NEUTRAL"
 
     confidence = min(0.90, 0.60 + abs(score) * 0.35)
-
-    source_labels = {
-        "NEWS_API": "live news headlines",
-        "DETERMINISTIC_FALLBACK": "deterministic demo fallback",
-        "SIMULATED": "simulated demo sentiment",
-    }
-    source_label = source_labels.get(sentiment_source, sentiment_source.lower())
-
-    reasoning = f"Sentiment score for {symbol} is {score:+.2f} ({signal}) from {source_label}."
-    if headline and sentiment_source == "NEWS_API":
-        reasoning += f' Latest headline: "{headline}".'
+    reasoning = (
+        f"Live news unavailable; deterministic demo sentiment fallback was used for {symbol} "
+        f"(score {score:+.2f}, {signal})."
+    )
 
     return {
         "agent": "sentiment",
@@ -597,9 +680,14 @@ def sentiment_agent(market_data: dict[str, Any]) -> dict[str, Any]:
         "normalized_signal": normalized,
         "confidence": round(confidence, 2),
         "reasoning": reasoning,
-        "evidence": [{"sentiment_score": score, "source": sentiment_source}],
-        "sources": [sentiment_source] if sentiment_source else [],
-        "status": STATUS_OK,
+        "evidence": [f"Deterministic demo sentiment score: {score:+.2f}"],
+        "sources": [],
+        "status": STATUS_DEGRADED,
+        "source_type": "DEMO_FALLBACK",
+        "sentiment_source": "DEMO_FALLBACK",
+        "score": score,
+        "news_headlines": [],
+        "news_headlines_retrieved": 0,
         "dimensions": {"sentiment": signal},
     }
 
@@ -669,8 +757,17 @@ def synthesis_agent(
     sources: list[dict[str, str]] = []
     for agent in agents:
         for src in agent.get("sources", []):
-            if src:
-                sources.append({"type": agent["agent"], "label": src})
+            if isinstance(src, dict):
+                entry = {
+                    "type": src.get("type", agent["agent"]),
+                    "label": src.get("label", ""),
+                }
+                if src.get("url"):
+                    entry["url"] = src["url"]
+            else:
+                entry = {"type": agent["agent"], "label": str(src)}
+            if entry.get("label") and entry not in sources:
+                sources.append(entry)
 
     return {
         "overall_signal": overall,
@@ -756,9 +853,17 @@ def _build_reasoning_chain(
             "[FINANCIAL EVIDENCE] No financial filings were available; fundamental analysis is degraded."
         )
 
-    chain.append(
-        f"[SENTIMENT SIGNAL] {sentiment.get('reasoning', 'Sentiment signal unavailable.')}"
-    )
+    if sentiment.get("sentiment_source") == "LIVE_NEWS":
+        headline_count = sentiment.get("news_headlines_retrieved", 0)
+        tone = sentiment.get("signal", "NEUTRAL").lower()
+        chain.append(
+            f"[LIVE NEWS SENTIMENT] {headline_count} recent headline(s) produced an aggregate "
+            f"{tone} sentiment signal."
+        )
+    else:
+        chain.append(
+            "[SENTIMENT SIGNAL] Live news unavailable; deterministic demo sentiment fallback was used."
+        )
 
     exposure_pct = portfolio_impact.get("exposure", 0.0) * 100
     user = portfolio_impact.get("user", "Investor")
@@ -838,6 +943,8 @@ def _empty_result(summary: str, status: str = "error") -> dict[str, Any]:
             "market_data_source": "UNAVAILABLE",
             "data_freshness": None,
             "live_api_success": False,
+            "news_headlines_retrieved": 0,
+            "sentiment_source": "DEMO_FALLBACK",
         },
         "status": status,
     }
@@ -885,6 +992,12 @@ def analyze_market_event(
         query = f"{symbol} quarterly financial disclosure revenue margin growth"
         documents = [] if simulate_missing_filing else retrieve_documents(query, symbol, top_k=2)
 
+        try:
+            news_result = fetch_live_news(symbol)
+        except Exception:
+            logger.exception("Unexpected news fetch failure for %s", symbol)
+            news_result = None
+
         technical: dict[str, Any] = {}
         fundamental: dict[str, Any] = {}
         sentiment: dict[str, Any] = {}
@@ -893,7 +1006,7 @@ def analyze_market_event(
             futures = {
                 executor.submit(technical_agent, market_data): "technical",
                 executor.submit(fundamental_agent, market_data, documents): "fundamental",
-                executor.submit(sentiment_agent, market_data): "sentiment",
+                executor.submit(sentiment_agent, market_data, news_result): "sentiment",
             }
             for future in as_completed(futures):
                 name = futures[future]
@@ -952,8 +1065,16 @@ def analyze_market_event(
             sources.append({"type": "rag", "label": doc["title"]})
         for agent in (technical, fundamental, sentiment):
             for src in agent.get("sources", []):
-                entry = {"type": agent["agent"], "label": str(src)}
-                if entry not in sources:
+                if isinstance(src, dict):
+                    entry: dict[str, str] = {
+                        "type": src.get("type", agent["agent"]),
+                        "label": src.get("label", ""),
+                    }
+                    if src.get("url"):
+                        entry["url"] = src["url"]
+                else:
+                    entry = {"type": agent["agent"], "label": str(src)}
+                if entry.get("label") and entry not in sources:
                     sources.append(entry)
 
         agents_completed = sum(
@@ -1007,6 +1128,8 @@ def analyze_market_event(
                 "data_freshness": market_data.get("data_timestamp"),
                 "live_api_success": market_data.get("live_api_success", False),
                 "provider": market_data.get("provider"),
+                "news_headlines_retrieved": sentiment.get("news_headlines_retrieved", 0),
+                "sentiment_source": sentiment.get("sentiment_source", "DEMO_FALLBACK"),
             },
             "status": pipeline_status,
         }
