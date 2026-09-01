@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,12 +31,56 @@ LIVE_PROVIDER_NAME = "yfinance"
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
 LIVE_FETCH_TIMEOUT_SECONDS = 6
 NEWS_FETCH_TIMEOUT_SECONDS = 5
-NEWS_PAGE_SIZE = 5
+NEWS_FETCH_PAGE_SIZE = 20
+NEWS_MAX_HEADLINES = 5
 
 COMPANY_NEWS_QUERIES = {
-    "TCS": '"Tata Consultancy Services" OR TCS stock',
-    "INFY": '"Infosys" OR INFY stock',
-    "RELIANCE": '"Reliance Industries" OR Reliance stock',
+    "TCS": '"Tata Consultancy Services" OR "Tata Consultancy Services Ltd" OR "NSE:TCS"',
+    "INFY": '"Infosys" OR "Infosys Ltd" OR "NSE:INFY"',
+    "RELIANCE": '"Reliance Industries" OR "Reliance Industries Ltd" OR "NSE:RELIANCE"',
+}
+
+COMPANY_RELEVANCE_PATTERNS: dict[str, dict[str, list[re.Pattern[str]]]] = {
+    "TCS": {
+        "include": [
+            re.compile(r"tata consultancy services", re.I),
+            re.compile(r"tata consultancy", re.I),
+            re.compile(r"\btcs\b", re.I),
+            re.compile(r"nse:tcs", re.I),
+            re.compile(r"tcs\.ns", re.I),
+            re.compile(r"bse:tcs", re.I),
+        ],
+        "exclude": [
+            re.compile(r"\btata motors\b", re.I),
+            re.compile(r"\btata steel\b", re.I),
+            re.compile(r"\btata power\b", re.I),
+            re.compile(r"\btata chemicals\b", re.I),
+        ],
+    },
+    "INFY": {
+        "include": [
+            re.compile(r"\binfosys\b", re.I),
+            re.compile(r"\binfy\b", re.I),
+            re.compile(r"nse:infy", re.I),
+            re.compile(r"infy\.ns", re.I),
+            re.compile(r"bse:infy", re.I),
+        ],
+        "exclude": [],
+    },
+    "RELIANCE": {
+        "include": [
+            re.compile(r"reliance industries", re.I),
+            re.compile(r"\breliance\b.{0,40}\b(ltd|limited|industries)\b", re.I),
+            re.compile(r"nse:reliance", re.I),
+            re.compile(r"reliance\.ns", re.I),
+            re.compile(r"bse:reliance", re.I),
+        ],
+        "exclude": [
+            re.compile(r"\breliance on\b", re.I),
+            re.compile(r"\breliance upon\b", re.I),
+            re.compile(r"\bplace reliance\b", re.I),
+        ],
+    },
 }
 
 POSITIVE_SENTIMENT_TERMS = (
@@ -293,6 +338,36 @@ def _score_text_sentiment(text: str) -> float:
     return round(max(-1.0, min(1.0, raw)), 2)
 
 
+def _is_article_relevant(symbol: str, article: dict[str, Any]) -> bool:
+    """Return True only when headline text is clearly tied to the selected company."""
+    text = f"{article.get('title', '')} {article.get('description', '')}"
+    profile = COMPANY_RELEVANCE_PATTERNS.get(symbol.upper())
+    if not profile:
+        return False
+
+    for pattern in profile.get("exclude", []):
+        if pattern.search(text):
+            return False
+
+    return any(pattern.search(text) for pattern in profile.get("include", []))
+
+
+def _filter_relevant_articles(symbol: str, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    relevant: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for article in articles:
+        title_key = article.get("title", "").strip().lower()
+        if not title_key or title_key in seen_titles:
+            continue
+        if not _is_article_relevant(symbol, article):
+            continue
+        seen_titles.add(title_key)
+        relevant.append(article)
+        if len(relevant) >= NEWS_MAX_HEADLINES:
+            break
+    return relevant
+
+
 def _normalize_news_article(article: dict[str, Any]) -> dict[str, Any] | None:
     title = (article.get("title") or "").strip()
     if not title:
@@ -317,7 +392,7 @@ def _fetch_news_api(symbol: str) -> list[dict[str, Any]]:
             "q": query,
             "language": "en",
             "sortBy": "publishedAt",
-            "pageSize": NEWS_PAGE_SIZE,
+            "pageSize": NEWS_FETCH_PAGE_SIZE,
             "apiKey": NEWS_API_KEY,
         }
     )
@@ -361,16 +436,23 @@ def fetch_live_news(symbol: str) -> dict[str, Any] | None:
     if not articles:
         return None
 
+    relevant_articles = _filter_relevant_articles(symbol, articles)
+    if not relevant_articles:
+        logger.info("No company-relevant headlines for %s after filtering", symbol)
+        return None
+
     per_headline_scores: list[float] = []
-    for article in articles:
+    for article in relevant_articles:
         text = f"{article['title']} {article['description']}"
-        per_headline_scores.append(_score_text_sentiment(text))
+        contribution = _score_text_sentiment(text)
+        article["sentiment_contribution"] = contribution
+        per_headline_scores.append(contribution)
 
     aggregate_score = round(sum(per_headline_scores) / len(per_headline_scores), 2)
     return {
-        "articles": articles,
+        "articles": relevant_articles,
         "score": aggregate_score,
-        "headline_count": len(articles),
+        "headline_count": len(relevant_articles),
     }
 
 

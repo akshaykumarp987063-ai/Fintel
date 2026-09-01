@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime, timezone
 from typing import Any
 
@@ -226,6 +227,8 @@ def inject_global_styles() -> None:
             font-size: 0.9rem;
             color: #c9d1d9;
             line-height: 1.55;
+            word-wrap: break-word;
+            overflow-wrap: anywhere;
         }
 
         .fintel-allocation-bar {
@@ -339,23 +342,44 @@ def normalize_agent_signal(agent: dict[str, Any]) -> str | None:
     return None
 
 
-def compute_consensus(agents: dict[str, Any]) -> tuple[str, bool]:
-    """Return (consensus_label, has_conflict)."""
-    signals = []
+def compute_consensus(agents: dict[str, Any]) -> tuple[str, bool, str]:
+    """Return (consensus_label, has_conflict, explanation)."""
+    agent_labels = {
+        "technical": "Technical",
+        "fundamental": "Fundamental",
+        "sentiment": "Sentiment",
+    }
+    normalized: dict[str, str] = {}
+    raw_signals: dict[str, str] = {}
+
     for key in ("technical", "fundamental", "sentiment"):
+        raw_signals[key] = agents.get(key, {}).get("signal", "—")
         norm = normalize_agent_signal(agents.get(key, {}))
         if norm:
-            signals.append(norm)
+            normalized[key] = norm
 
-    if not signals:
-        return "Unavailable", False
+    if not normalized:
+        return "Unavailable", False, ""
 
-    unique = set(signals)
+    unique = set(normalized.values())
     if len(unique) == 1:
-        return "Strong", False
+        return "Strong", False, "All agents align on the same directional signal."
+
+    bullish = [agent_labels[k] for k, v in normalized.items() if v == "BULLISH"]
+    bearish = [agent_labels[k] for k, v in normalized.items() if v == "BEARISH"]
+    neutral = [agent_labels[k] for k, v in normalized.items() if v == "NEUTRAL"]
+
+    if "BULLISH" in unique and "BEARISH" in unique:
+        return "Conflicted", True, "Signal conflict detected — confidence reduced."
+
     if len(unique) == 2 and "NEUTRAL" in unique:
-        return "Mixed", False
-    return "Conflicted", True
+        if len(bearish) == 2 and len(neutral) == 1:
+            return "Mixed", False, f"Two agents are bearish while {neutral[0].lower()} is neutral."
+        if len(bullish) == 2 and len(neutral) == 1:
+            return "Mixed", False, f"Two agents are bullish while {neutral[0].lower()} is neutral."
+        return "Mixed", False, "Agents show mixed directional signals with a neutral contributor."
+
+    return "Mixed", False, "Agents show partially aligned signals."
 
 
 def parse_reasoning_step(step: str) -> tuple[str, str]:
@@ -577,10 +601,11 @@ def render_agent_card(agent_key: str, agent: dict[str, Any]) -> None:
 
 def render_agent_council(result: dict[str, Any], simulate_conflict: bool) -> None:
     agents = result.get("agents", {})
-    consensus, has_conflict = compute_consensus(agents)
+    consensus, has_conflict, explanation = compute_consensus(agents)
     if simulate_conflict:
         has_conflict = True
         consensus = "Conflicted"
+        explanation = "Signal conflict detected — confidence reduced."
 
     st.markdown('<p class="fintel-section-title">Multi-Agent Council</p>', unsafe_allow_html=True)
     st.markdown(
@@ -595,28 +620,19 @@ def render_agent_council(result: dict[str, Any], simulate_conflict: bool) -> Non
             render_agent_card(key, agents.get(key, {}))
 
     st.markdown('<div style="margin-top: 0.75rem;"></div>', unsafe_allow_html=True)
-    st.markdown(
-        f"""
-        <div class="fintel-card">
-            <p class="fintel-metric-label">Agent Consensus</p>
-            <div class="fintel-consensus-row"><span>Technical</span><span>{agents.get('technical', {}).get('signal', '—')}</span></div>
-            <div class="fintel-consensus-row"><span>Fundamental</span><span>{agents.get('fundamental', {}).get('signal', '—')}</span></div>
-            <div class="fintel-consensus-row"><span>Sentiment</span><span>{agents.get('sentiment', {}).get('signal', '—')}</span></div>
-            <p style="margin-top: 0.85rem; font-size: 0.95rem; color: #c9d1d9;">
-                Consensus: <strong>{consensus}</strong>
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="fintel-card">', unsafe_allow_html=True)
+    st.markdown('<p class="fintel-metric-label">Agent Consensus</p>', unsafe_allow_html=True)
 
+    for label, key in [("Technical", "technical"), ("Fundamental", "fundamental"), ("Sentiment", "sentiment")]:
+        signal = agents.get(key, {}).get("signal", "—")
+        st.write(f"**{label}** — {signal}")
+
+    st.write(f"**Consensus:** {consensus}")
+    if explanation:
+        st.caption(explanation)
     if has_conflict or simulate_conflict:
-        st.markdown(
-            '<span class="fintel-signal-badge signal-warn">SIGNAL CONFLICT</span>'
-            '<p class="fintel-subline" style="margin-top: 0.5rem;">'
-            "Agent disagreement detected — final confidence has been reduced.</p>",
-            unsafe_allow_html=True,
-        )
+        st.warning("Signal conflict detected — confidence reduced.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_sentiment_section(result: dict[str, Any]) -> None:
@@ -627,40 +643,48 @@ def render_sentiment_section(result: dict[str, Any]) -> None:
     st.markdown('<p class="fintel-section-heading">Sentiment Intelligence</p>', unsafe_allow_html=True)
 
     if src_type == "LIVE_NEWS":
-        st.markdown(
-            '<p class="fintel-subline">Source: <strong style="color:#3fb950;">LIVE NEWS</strong></p>',
-            unsafe_allow_html=True,
-        )
         headline_count = sentiment.get("news_headlines_retrieved", 0)
-        st.caption(f"{headline_count} headline(s) retrieved · Aggregate score: {sentiment.get('score', 0):+.2f}")
-        for headline in sentiment.get("news_headlines", []):
-            publisher = headline.get("source", "Unknown")
-            title = headline.get("title", "")
+        st.caption(
+            f"Source: LIVE NEWS · {headline_count} relevant headline(s) · "
+            f"Aggregate score: {sentiment.get('score', 0):+.2f}"
+        )
+        for headline in sentiment.get("news_headlines", [])[:5]:
+            publisher = html.escape(headline.get("source", "Unknown"))
+            title = html.escape(headline.get("title", ""))
             published = headline.get("published_at", "")
             url = headline.get("url", "")
-            pub_display = format_timestamp(published, "Published") if published else ""
+            contribution = headline.get("sentiment_contribution")
+            pub_display = html.escape(format_timestamp(published, "Published")) if published else ""
+
+            contribution_line = ""
+            if contribution is not None:
+                contribution_line = (
+                    f'<p class="fintel-subline">Sentiment contribution: {contribution:+.2f}</p>'
+                )
+
+            link_line = ""
+            if url:
+                safe_url = html.escape(url)
+                link_line = (
+                    f'<p class="fintel-subline" style="margin-top: 0.35rem;">'
+                    f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Source link</a></p>'
+                )
+
             st.markdown(
                 f"""
                 <div class="fintel-news-card">
                     <p class="fintel-metric-label">{publisher}</p>
                     <p style="font-size: 0.95rem; font-weight: 600; color: #e8eaed; margin: 0.35rem 0;">{title}</p>
                     <p class="fintel-subline">{pub_display}</p>
+                    {contribution_line}
+                    {link_line}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            if url:
-                st.markdown(f"[Read source article]({url})")
     else:
-        st.markdown(
-            """
-            <p class="fintel-subline">Source: <strong>DETERMINISTIC DEMO FALLBACK</strong></p>
-            <p class="fintel-subline" style="margin-top: 0.35rem;">
-                Live news unavailable — deterministic fallback active.
-            </p>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.caption("Source: DETERMINISTIC DEMO FALLBACK")
+        st.info("Live news unavailable — deterministic fallback active.")
         st.caption(f"Fallback score: {sentiment.get('score', 0):+.2f}")
 
 
@@ -734,10 +758,11 @@ def render_portfolio_impact(result: dict[str, Any], investor_id: str) -> None:
 def render_confidence(result: dict[str, Any], simulate_conflict: bool) -> None:
     confidence = result.get("confidence", 0)
     agents = result.get("agents", {})
-    consensus, has_conflict = compute_consensus(agents)
+    consensus, has_conflict, explanation = compute_consensus(agents)
     if simulate_conflict:
         has_conflict = True
         consensus = "Conflicted"
+        explanation = "Signal conflict detected — confidence reduced."
 
     c1, c2 = st.columns([1, 1.5])
     with c1:
@@ -752,24 +777,21 @@ def render_confidence(result: dict[str, Any], simulate_conflict: bool) -> None:
             unsafe_allow_html=True,
         )
     with c2:
-        conflict_note = ""
-        if has_conflict:
-            conflict_note = (
-                "<p class='fintel-subline' style='color: #d29922; margin-top: 0.75rem;'>"
-                "Confidence reduced due to agent disagreement.</p>"
-            )
+        st.markdown('<div class="fintel-card">', unsafe_allow_html=True)
+        st.markdown('<p class="fintel-metric-label">Agent Agreement</p>', unsafe_allow_html=True)
         st.markdown(
-            f"""
-            <div class="fintel-card">
-                <p class="fintel-metric-label">Agent Agreement</p>
-                <p class="fintel-metric-value-sm">{consensus}</p>
-                <p class="fintel-subline">Overall signal: <strong>{result.get('overall_signal', '—')}</strong></p>
-                {conflict_note}
-                <p class="fintel-subline" style="margin-top: 0.75rem;">{result.get('summary', '')}</p>
-            </div>
-            """,
+            f'<p class="fintel-metric-value-sm">{html.escape(consensus)}</p>',
             unsafe_allow_html=True,
         )
+        if explanation:
+            st.caption(explanation)
+        st.caption(f"Overall signal: {result.get('overall_signal', '—')}")
+        if has_conflict:
+            st.warning("Confidence reduced due to agent disagreement.")
+        summary = result.get("summary", "")
+        if summary:
+            st.caption(summary)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_reasoning_chain(result: dict[str, Any]) -> None:
@@ -782,8 +804,8 @@ def render_reasoning_chain(result: dict[str, Any]) -> None:
             st.markdown(
                 f"""
                 <div class="fintel-timeline-step">
-                    <p class="fintel-timeline-label">{label}</p>
-                    <p class="fintel-timeline-body">{body}</p>
+                    <p class="fintel-timeline-label">{html.escape(label)}</p>
+                    <p class="fintel-timeline-body">{html.escape(body)}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -820,20 +842,8 @@ def render_evidence(result: dict[str, Any]) -> None:
 
     st.markdown("**News**")
     if sentiment.get("sentiment_source") == "LIVE_NEWS":
-        for headline in sentiment.get("news_headlines", []):
-            publisher = headline.get("source", "Unknown")
-            title = headline.get("title", "")
-            published = headline.get("published_at", "")
-            url = headline.get("url", "")
-            with st.expander(f"{publisher} — {title[:70]}"):
-                st.write(title)
-                if published:
-                    st.caption(format_timestamp(published, "Published"))
-                if url:
-                    st.markdown(f"[Source link]({url})")
-        for src in sources:
-            if src.get("type") == "news" and src.get("url"):
-                st.write(f"- [{src.get('label', 'News')}]({src['url']})")
+        count = sentiment.get("news_headlines_retrieved", 0)
+        st.write(f"- {count} company-relevant headline(s) shown in Sentiment Intelligence above.")
     else:
         st.write("- Live news unavailable — deterministic sentiment fallback in use.")
 
