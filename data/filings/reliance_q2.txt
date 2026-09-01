@@ -1,0 +1,56 @@
+SYNTHETIC DEMONSTRATION DOCUMENT — NOT A REAL COMPANY FILING
+Demo quarter: Q2 FY2026 (simulated). Fintel hackathon prototype only.
+Company label: RELIANCE (demo ticker). All figures below are invented.
+This demo is an energy-to-consumer conglomerate, not an IT-services company.
+
+1. Company Overview
+Reliance in this dataset spans energy products, petrochemicals, retail, and digital consumer services. Retrieval should find commodity-linked earnings, consumer footfall, network investment, and energy-transition capex. Nothing here is a statutory filing.
+
+2. Revenue / Growth
+Simulated consolidated Q2 revenue is up 8.6 percent year on year and 3.1 percent sequentially. Growth is not uniform across segments.
+
+Energy products and refining: revenue down 1.2 percent year on year because product cracks (the simulated gap between product prices and crude costs) narrowed after a strong prior-year quarter. Volumes were slightly higher; realisations were lower.
+
+Petrochemicals: revenue up 5.4 percent on polymer demand from packaging and infrastructure.
+
+Retail: revenue up 14.2 percent from store additions and higher grocery and fashion basket size — the fastest-growing large segment.
+
+Digital consumer services: revenue up 18.0 percent from a smaller base, from subscriptions and fictional partnership income.
+
+Group growth accelerated versus last year, but energy-product growth turned slightly negative while retail and digital more than offset it. That differs from TCS slowdown and Infosys mid-single-digit stability.
+
+3. Operating Margins
+Consolidated operating margin is 15.4 percent, down 60 basis points year on year and up 20 basis points sequentially. The year-on-year decline is almost entirely energy products, where weaker cracks compressed the spread.
+
+Retail operating margin expanded 40 basis points as private-label mix improved. Digital services remain below group-average margin because of network and content investment. Petrochemicals margins recovered from a weak year-ago base as cracker utilisation improved. Corporate costs were stable.
+
+Group operating margins are under pressure because of energy spreads, not IT wage mix. Retail and petrochemicals are a partial offset.
+
+4. Business Demand
+Fuel demand in the domestic market is healthy in transport fuels, with a seasonal dip in some industrial fuels. Export demand for certain products is softer because regional inventories are high.
+
+Retail demand is resilient: footfalls up, especially in tier-2 and tier-3 cities. Discretionary fashion is steady, not booming. Grocery is the volume anchor. Digital demand is strong for connectivity and bundled entertainment, with high competitive intensity.
+
+There is no weaker-discretionary-IT theme. The closest analogue is softer export realisations and promotional intensity in digital.
+
+5. Management Observations
+Management says the group is balanced: energy cash still funds retail and digital even in a weaker crack environment. Demo comment: “Group revenue growth remains healthy because consumer businesses are scaling. Energy margins are cyclical; we will not over-interpret one quarter of narrower spreads.”
+
+Domestic consumption is holding up and retail expansion will continue. Competition is forcing higher digital customer-acquisition spend in the near term. Capital allocation to new-energy projects rises in this script, which may keep group return on capital volatile while projects ramp.
+
+6. Outlook
+Constructive for retail and digital; cautious-to-neutral for energy products. Group revenue growth should stay high-single-digit over the next two demo quarters if store openings stay on plan.
+
+Energy-product margins are not expected to snap back immediately; cracks stay below last year’s elevated levels. Petrochemicals should keep recovering gradually. Digital should keep double-digit revenue growth with margins still diluted by investment.
+
+Group operating-margin recovery depends more on energy spreads than on consumer volume. This outlook is about commodity cycles plus consumer expansion, not client IT budgets.
+
+7. Key Risks
+Key risks: further compression of refining and product spreads; crude-price spikes not fully passed through; slower consumer spending if food inflation rises; intense price competition in digital connectivity; delay risk on new-energy projects; hypothetical regulatory changes in fuel, retail, or digital; and high capex that could pressure free cash flow if energy earnings stay weak.
+
+Safety, environmental incidents, and energy-site supply-chain disruption are operational risks. Currency moves that affect imported crude are also listed. Headline risk is energy-margin cyclicality plus capex load.
+
+8. Major Developments
+This quarter in the demo: net 180 additional retail stores; a digital tariff promotion that lifted subscriber additions but weighed on average revenue per user; a planned turnaround at a fictional energy site that reduced Q2 throughput; a further tranche of new-energy capital spend; and a petrochemical volume recovery after a prior-quarter outage.
+
+Condition set: stronger group revenue growth led by retail and digital, energy-driven operating-margin pressure, resilient consumer demand, a constructive consumer outlook with cautious energy spreads, and risks around commodity cycles, competition, and capital projects.

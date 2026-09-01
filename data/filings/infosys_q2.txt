@@ -1,0 +1,51 @@
+SYNTHETIC DEMONSTRATION DOCUMENT — NOT A REAL COMPANY FILING
+Demo quarter: Q2 FY2026 (simulated). Fintel hackathon prototype only.
+Company label: INFY / Infosys (demo ticker). All figures below are invented.
+
+1. Company Overview
+Infosys in this demo is a digital services and consulting firm covering cloud infrastructure, data and analytics, enterprise applications, and industry process operations. The story differs from TCS: growth is more balanced, large-deal conversion improved sequentially, and the margin and demand pattern is different. Use this file for Infosys-specific retrieval on revenue, margins, demand, outlook, and risks.
+
+2. Revenue / Growth
+Simulated Q2 revenue grows 4.9 percent year on year and 1.8 percent sequentially — faster than the TCS demo, but below a hypothetical 8–10 percent digital-cycle comparison. Growth is led by financial-services data platforms and cloud operations, not by every industry.
+
+Two large cost-optimisation programmes signed last year entered a higher billing phase this quarter, lifting reported growth even though new logos were only moderate. Europe grows about 3.2 percent year on year versus about 2.1 percent in North America. India and rest-of-world digital public-sector work grows 9 percent from a small base.
+
+Revenue growth is therefore steady rather than spectacular: less of a cliff than TCS, but still below this script’s 6–8 percent longer-term aspiration.
+
+3. Operating Margins
+Operating margin is 20.8 percent, up 20 basis points sequentially but still 50 basis points below the year-ago simulated quarter. The year-on-year gap is mainly a large campus hiring cohort not yet fully utilised, plus higher visa and mobility costs.
+
+Unlike TCS, there is no sharp mix shift into low-margin run work. Margins are digesting a talent investment cycle. Automation of testing and incident management is credited with 30 basis points of savings, which is why sequential margin improved.
+
+Management says it will defend a 20–22 percent operating-margin band and will not chase growth that would push the company below 20 percent.
+
+4. Business Demand
+Demand is selective but constructive. Clients fund run-cost reduction and core systems already at end-of-life. Greenfield customer-experience work is paced, not collapsing.
+
+A unique theme is vendor consolidation: several simulated clients cut IT partners from five to two, and Infosys is a net share winner inside accounts. Volume holds even when total client IT budgets are flat.
+
+Another unique theme is data-governance and reporting work tied to simulated banking and insurance regulatory calendars. That work is less discretionary than marketing apps. Near-term demand is “selectively improving,” not mixed and weak. Pipeline coverage for the next two quarters is adequate, with more renewals than net-new work.
+
+5. Management Observations
+Management says revenue growth has stabilised in a mid-single-digit range and that execution matters more than a sudden acceleration. On margins: “We hired ahead of demand last year; utilisation is now recovering, and sequential operating margins have started to improve.”
+
+The demo COO highlights share gains inside accounts and demand for partners who combine cloud operations with industry process knowledge. Leadership is more confident than in the TCS demo about the next two quarters, while warning that a financial-services budget freeze would slow conversion.
+
+Generative AI is used first to industrialise maintenance, not to sell standalone AI products. Monetisation is embedded in productivity contracts.
+
+6. Outlook
+The outlook is moderately constructive. Revenue growth should stay in a 4–6 percent year-on-year band over the next two demo quarters, with a chance of the upper end if two fictional banking platform deals close on time.
+
+Operating margins should grind toward the middle of the 20–22 percent band as utilisation improves, if attrition stays near the demo assumption of 12 percent. There is no assumed boom in discretionary digital — continued cost programmes plus selective core modernisation.
+
+Downside: delay in European public-sector digital work, or a pricing reset on a large North American renewal. Upside: faster utilisation recovery and one extra cloud-operations deal.
+
+7. Key Risks
+Key risks: utilisation below plan if the hiring cohort ramps slowly; pricing pressure on mega-renewals; growth concentrated in a few cost-optimisation programmes that could complete; regulatory delays on data-platform go-lives; wage inflation; and integrating a simulated cybersecurity tuck-in.
+
+Productivity-led AI savings could also be competed away as price cuts. Currency is a two-way risk. Headline risk is utilisation and large-deal pricing, not a discretionary-demand slump.
+
+8. Major Developments
+This quarter in the demo: a fictional cybersecurity acquisition; a data-platform alliance for banking reporting; a campus hiring programme of 18,000 graduates, many still in training; a vendor-consolidation win at a European insurer; and an automated incident-management layer credited for sequential margin improvement.
+
+Condition set: steadier mid-single-digit revenue growth, sequential margin recovery after a hiring-led dip, selectively improving demand via account share gains, a moderately constructive outlook, and risks around utilisation and renewal pricing.
